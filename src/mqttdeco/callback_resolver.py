@@ -6,6 +6,7 @@ from .mqtt_message import MQTTMessage
 from enum import Enum, auto
 from typing import Optional, Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 
 @dataclass
@@ -160,7 +161,6 @@ class TopicNode(object):
 
         return match, parameters
 
-
     def get_matching_nodes(self,
                            topic_parts: list[str],
                            parameters: Optional[dict[str, str]] = None) -> list[TopicMatch]:
@@ -285,11 +285,16 @@ class CallbackResolver(object):
         """
         return self.__nodes
 
+    @lru_cache(maxsize=128)
     def get_matching_nodes(self, topic: str) -> list[TopicMatch]:
         """
         Fetches and returns a list of matching nodes for the provided topic. This method interacts with
         the internal nodes structure to find matches based on the topic split by `/`. The retrieved matching
         nodes will have their `topic` attribute updated with the provided topic string.
+
+        The method is using caching in order to reduce the lookup time needed to
+        traverse over the nodes. This is based on fact that single topic should
+        always bring same nodes as an result of lookup.
 
         :param topic: Topic string used to search for matching nodes.
         :type topic: str
