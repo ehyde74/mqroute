@@ -1,8 +1,9 @@
 import json
 import socket
+import time
 from functools import singledispatchmethod
 from logging import getLogger
-from random import randint
+from random import randint, uniform
 from typeguard import typechecked, check_type
 from typing import Any, Callable, Optional
 
@@ -37,6 +38,8 @@ class MQTTClient(object):
         """
         self.__host: str = host
         self.__port: int = port
+
+        self.__backoff_time = 1
 
         self.__subscriptions: list[MQTTSubscription] = []
 
@@ -90,7 +93,7 @@ class MQTTClient(object):
         """
         def decorator(func):
             convert_json = not raw_payload
-            # In practice, this checks just that it's Callable. Maybe more one day..
+            # In practice, this checks just that it's Callable. Maybe more one day...
             check_type(func,
                        expected_type=Callable[[str, MQTTMessage, Optional[dict[str, str]]], None])
             def wrapper(*args, **kwargs):
@@ -139,6 +142,17 @@ class MQTTClient(object):
         logger.debug(self.__msg_callbacks)
         self.__client.connect(host=self.__host,
                               port=self.__port)
+
+    def reconnect(self):
+        backoff = self.__backoff_time
+        while True:
+            try:
+                self.connect()
+                break
+            except Exception as e:
+                logger.warning(f"Reconnect failed: {e}. Retrying in {backoff} seconds...")
+                time.sleep(self.__backoff_time)
+                backoff = min(60, backoff * 2 + uniform(0, 1))  # cap at 60 seconds
 
     @property
     def topic_map(self) -> CallbackResolver:
@@ -234,7 +248,7 @@ class MQTTClient(object):
 
 
     def on_message(self,
-                   client: mqtt.Client,
+                   _: mqtt.Client,                # client
                    userdata: MQTTClientUserData,
                    message: mqtt.MQTTMessage):
         """
@@ -244,8 +258,8 @@ class MQTTClient(object):
         appropriate registered callbacks for the topic using the topic map stored in the
         user data.
 
-        :param client: The MQTT client instance that received the message.
-        :type client: mqtt.Client
+        :param _: The MQTT client instance that received the message.
+        :type _: mqtt.Client
         :param userdata: The user-defined data passed to the callbacks, typically an
             instance containing metadata or configurations such as a topic-to-callback
             mapping.
@@ -333,7 +347,7 @@ class MQTTClient(object):
         """
         logger.warning(f"Disconnected with reason {reason_code}")
         logger.info("Trying to reconnect")
-        userdata.client.connect()
+        userdata.client.reconnect()
 
 
 
