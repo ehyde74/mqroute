@@ -3,13 +3,15 @@ import socket
 from functools import singledispatchmethod
 from logging import getLogger
 from random import randint
-from typing import Any
+from typeguard import typechecked, check_type
+from typing import Any, Callable, Optional
 
 from paho.mqtt import client as mqtt
 
 from .mqtt_client_userdata import MQTTClientUserData
 from .mqtt_message import MQTTMessage
 from .mqtt_subscription import MQTTSubscription
+from .qos import QOS
 
 __all__ = ["MQTTClient"]
 
@@ -19,40 +21,30 @@ logger = getLogger(__name__)
 
 
 class MQTTClient(object):
-    """
-    Represents an MQTT client capable of managing connections, publishing, subscribing,
-    and handling messages to/from an MQTT broker.
+    @typechecked
+    def __init__(self, *, host: str, port: int = 1883, paho_logs = False):
+        """
+        Initializes an MQTTClient instance with essential configurations such as host, port, and optional logging.
+        This class configures the client's callbacks and prepares it to handle MQTT network operations, including
+        connection, subscription, messaging, publishing, and logging.
 
-    This class provides methods for connecting to an MQTT broker, managing subscriptions,
-    publishing messages, and handling various events such as connection success, disconnection,
-    message arrival, and subscription management. It offers flexibility for advanced message
-    processing by allowing callbacks and payload handling.
-
-    :ivar __host: Host address of the MQTT broker to connect to.
-    :type __host: str
-    :ivar __port: Port number of the MQTT broker.
-    :type __port: int
-    :ivar __subscriptions: List of active subscriptions managed by the client.
-    :type __subscriptions: list[MQTTSubscription]
-    :ivar __current_subscriptions: Current subscriptions being managed by the client.
-    :type __current_subscriptions: list
-    :ivar __msg_callbacks: Resolver managing callbacks for subscribed topics.
-    :type __msg_callbacks: CallbackResolver
-    :ivar __client: Internal MQTT client object managed by the `paho-mqtt` library.
-    :type __client: mqtt.Client
-    """
-    def __init__(self, *, host: str, port: int = 1883):
+        :param host: Hostname or IP address of the MQTT broker to connect to.
+        :type host: str
+        :param port: Port number of the MQTT broker for connection. If not provided, defaults to 1883.
+        :type port: int
+        :param paho_logs: Optional parameter to enable or disable Paho MQTT client logs. Defaults to False.
+        :type paho_logs: bool
+        """
         self.__host: str = host
         self.__port: int = port
 
         self.__subscriptions: list[MQTTSubscription] = []
-        self.__current_subscriptions = []
 
         self.__msg_callbacks: CallbackResolver = CallbackResolver()
 
 
         client_host_name = socket.gethostname()
-        client_id = f"{client_host_name}-{randint(0, 1024**4):x}"
+        client_id = f"{client_host_name}-{randint(0, 1_000_000):x}"
 
         logger.info(f"Initializing MQTTClient: {client_id=}, {host=}, {port=}")
         self.__client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -65,10 +57,15 @@ class MQTTClient(object):
         self.__client.on_subscribe = self.on_subscribe
         self.__client.on_connect_fail = self.on_connect_fail
         self.__client.on_disconnect = self.on_disconnect
-        #self.__client.on_log = self.on_log
+        if paho_logs:
+            self.__client.on_log = self.on_log
         self.__client.on_unsubscribe = self.on_unsubscribe
 
-    def subscribe(self, topic: str, qos: int, raw_payload: bool = False):
+    @typechecked
+    def subscribe(self,
+                  topic: str,
+                  qos: QOS = QOS.AT_MOST_ONCE,
+                  raw_payload: bool = False):
         """
         The `subscribe` method facilitates MQTT topic subscription by allowing the user to create
         a decorator that processes incoming messages before invoking the decorated function.
@@ -93,10 +90,19 @@ class MQTTClient(object):
         """
         def decorator(func):
             convert_json = not raw_payload
+            # In practice, this checks just that it's Callable. Maybe more one day..
+            check_type(func,
+                       expected_type=Callable[[str, MQTTMessage, Optional[dict[str, str]]], None])
             def wrapper(*args, **kwargs):
                 if convert_json:
-                    json_dict = json.loads(args[1].message)
-                    args[1].message = json_dict
+                    try:
+                        json_dict = json.loads(args[1].message)
+                        args[1].message = json_dict
+                    except (json.JSONDecodeError, AttributeError, TypeError) as e:
+                        logger.error(f"Failed to decode JSON payload: {e}\n"
+                                     f"          faulty JSON: {args[1].message}")
+
+                        return # just dismiss the message.
 
                 return func(*args, **kwargs)
 
@@ -177,7 +183,7 @@ class MQTTClient(object):
         return subscription
 
     @subscribe_topic.register
-    def _(self, topic: str, qos: int) -> MQTTSubscription:
+    def _(self, topic: str, qos: QOS) -> MQTTSubscription:
         """
         Subscribes to a specific MQTT topic with a designated quality of service (QoS) level
         and registers the subscription. This method allows managing MQTT subscriptions
@@ -186,12 +192,12 @@ class MQTTClient(object):
         :param topic: The MQTT topic to subscribe to.
         :type topic: str
         :param qos: Quality of Service level for the subscription (0, 1, or 2).
-        :type qos: int
+        :type qos: QOS
         :return: An `MQTTSubscription` object representing the subscription with the
                  specified topic and QoS level.
         :rtype: MQTTSubscription
         """
-        subscription = MQTTSubscription(topic=topic, qos=qos)
+        subscription = MQTTSubscription(topic=topic, qos=qos.value)
         self.__subscriptions.append(subscription)
         return subscription
 
@@ -222,10 +228,8 @@ class MQTTClient(object):
         if subscriptions:
             logger.debug(f" => Subscribing {subscriptions}")
             client.subscribe(subscriptions)
-            self.__current_subscriptions = subscriptions
         else:
             logger.warning(" => Nothing to subscribe")
-            self.__current_subscriptions = []
 
 
 
@@ -327,7 +331,6 @@ class MQTTClient(object):
             properties and metadata related to the disconnection.
         :return: None
         """
-        self.__current_subscriptions = []
         logger.warning(f"Disconnected with reason {reason_code}")
         logger.info("Trying to reconnect")
         userdata.client.connect()

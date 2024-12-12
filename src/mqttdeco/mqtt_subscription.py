@@ -2,7 +2,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+
 __all__ = ["MQTTSubscription"]
+
+from .qos import QOS
 
 
 @dataclass
@@ -18,4 +21,4 @@ class MQTTSubscription(object):
     :ivar qos: The Quality of Service level for the subscription.
     """
     topic: str
-    qos: int
+    qos: QOS
