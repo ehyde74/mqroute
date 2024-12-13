@@ -1,5 +1,7 @@
+import asyncio
 import json
 import socket
+import threading
 import time
 from functools import singledispatchmethod
 from logging import getLogger
@@ -9,6 +11,7 @@ from typing import Any, Callable, Optional
 
 from paho.mqtt import client as mqtt
 
+from .callback_runner import CallbackRunner
 from .mqtt_client_userdata import MQTTClientUserData
 from .mqtt_message import MQTTMessage
 from .mqtt_subscription import MQTTSubscription
@@ -44,7 +47,8 @@ class MQTTClient(object):
         self.__subscriptions: list[MQTTSubscription] = []
 
         self.__msg_callbacks: CallbackResolver = CallbackResolver()
-
+        self.__cb_runner = CallbackRunner()
+        self.__cb_runner_task = None
 
         client_host_name = socket.gethostname()
         client_id = f"{client_host_name}-{randint(0, 1_000_000):x}"
@@ -166,7 +170,7 @@ class MQTTClient(object):
         """
         return self.__msg_callbacks
 
-    def run(self):
+    async def run(self):
         """
         Represents a method to initiate and maintain a connection loop for a client.
 
@@ -179,8 +183,19 @@ class MQTTClient(object):
 
         :return: None
         """
-        self.connect()
-        self.__client.loop_forever()
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None,
+                                   self.__client.connect,
+                                   self.__host,
+                                   self.__port)
+
+        self.__cb_runner.loop = loop
+        self.__cb_runner_task = asyncio.create_task(self.__cb_runner.process_callbacks())
+
+        while True:
+            # Periodically call the client loop method
+            self.__client.loop(timeout=1.0)
+            await asyncio.sleep(0.1)
 
     @singledispatchmethod
     def subscribe_topic(self, subscription: MQTTSubscription) -> MQTTSubscription:
@@ -274,7 +289,9 @@ class MQTTClient(object):
         msg = MQTTMessage(topic=message.topic,
                           message=message.payload.decode('utf-8'))
         for cb in topic_map.callbacks(topic):
-            cb.cb_method(cb.topic, msg, cb.parameters)
+             #cb.cb_method(cb.topic, msg, cb.parameters)
+             self.__cb_runner.run_callback(cb, msg)
+
 
 
     def on_publish(self,
