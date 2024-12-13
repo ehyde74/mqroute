@@ -1,5 +1,5 @@
 from .topic_node import TopicNode
-from mqttdeco.topic_match import TopicMatch
+from mqroute.topic_match import TopicMatch
 from .callback_request import CallbackRequest
 from .mqtt_message import MQTTMessage
 
@@ -18,7 +18,7 @@ class CallbackResolver(object):
     and assist in retrieving appropriate callbacks for a given topic.
 
     :ivar __nodes: Root node of the topic tree structure, used to store and resolve callbacks.
-    :type __nodes: mqttdeco.topic_node.TopicNode
+    :type __nodes: mqroute.topic_node.TopicNode
     """
     def __init__(self):
         self.__nodes = TopicNode(part=None)
