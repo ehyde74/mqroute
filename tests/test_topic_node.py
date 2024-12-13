@@ -2,7 +2,7 @@
 
 import pytest
 
-from mqttdeco.topic_node import TopicNode
+from mqroute.topic_node import TopicNode
 
 def test_register_creates_hierarchy():
     def test_callback(topic, message, params):

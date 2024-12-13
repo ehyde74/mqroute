@@ -1,4 +1,4 @@
-from mqttdeco import MQTTClient, subscribe, MqttMessage, sigkill, sigstop
+from mqroute import MQTTClient, subscribe, MqttMessage, sigkill, sigstop
 
 from typing import Optional
 
