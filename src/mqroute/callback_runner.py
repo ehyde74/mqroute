@@ -1,4 +1,5 @@
 import asyncio
+from inspect import iscoroutinefunction
 
 from .mqtt_message import MQTTMessage
 from .callback_request import CallbackRequest
@@ -25,7 +26,11 @@ class CallbackRunner(object):
         self.__ready = True
         while True:
             request, msg = await self.__queue.get()
-            await request.cb_method(request.topic, msg, request.parameters)
+            if iscoroutinefunction(request.cb_method):
+                await request.cb_method(request.topic, msg, request.parameters)
+            else:
+                request.cb_method(request.topic, msg, request.parameters)
+
 
 
     def run_callback(self, cb_request: CallbackRequest, msg: MQTTMessage):
