@@ -1,15 +1,14 @@
 import asyncio
 import json
 import socket
-import threading
 import time
 from functools import singledispatchmethod
 from logging import getLogger
 from random import randint, uniform
-from typeguard import typechecked, check_type
 from typing import Any, Callable, Optional
 
 from paho.mqtt import client as mqtt
+from typeguard import typechecked, check_type
 
 from .callback_runner import CallbackRunner
 from .mqtt_client_userdata import MQTTClientUserData
@@ -25,6 +24,7 @@ logger = getLogger(__name__)
 
 
 class MQTTClient(object):
+    # noinspection PyArgumentList
     @typechecked
     def __init__(self, *, host: str, port: int = 1883, paho_logs = False):
         """
@@ -48,7 +48,7 @@ class MQTTClient(object):
 
         self.__msg_callbacks: CallbackResolver = CallbackResolver()
         self.__cb_runner = CallbackRunner()
-        self.__cb_runner_task = None
+        self.__cb_runner_task: Optional[asyncio.Task] = None
 
         client_host_name = socket.gethostname()
         client_id = f"{client_host_name}-{randint(0, 1_000_000):x}"
@@ -148,6 +148,16 @@ class MQTTClient(object):
                               port=self.__port)
 
     def reconnect(self):
+        """
+        Attempts to reconnect to a service with an exponential backoff strategy.
+
+        This method repeatedly tries to establish a connection by invoking the
+        `connect` method. In the event of a failure, it waits for an exponentially
+        increasing duration, capped at 60 seconds, before retrying. The backoff time
+        is also randomized slightly to prevent synchronized retry bursts.
+
+        :return: None
+        """
         backoff = self.__backoff_time
         while True:
             try:
@@ -170,6 +180,7 @@ class MQTTClient(object):
         """
         return self.__msg_callbacks
 
+    # noinspection PyTypeChecker
     async def run(self):
         """
         Represents a method to initiate and maintain a connection loop for a client.
@@ -230,8 +241,8 @@ class MQTTClient(object):
         self.__subscriptions.append(subscription)
         return subscription
 
-    def on_connect(self,
-                   client: mqtt.Client,
+    @staticmethod
+    def on_connect(client: mqtt.Client,
                    userdata: MQTTClientUserData,
                    _: dict[str, Any],  # connect_flags
                    reason_code: mqtt.ReasonCodes,
@@ -267,22 +278,22 @@ class MQTTClient(object):
                    userdata: MQTTClientUserData,
                    message: mqtt.MQTTMessage):
         """
-        This function is a callback for handling incoming MQTT messages. It is triggered
-        whenever a message is published on a topic the MQTT client is subscribed to. The
-        function processes the incoming message, decodes its payload, and invokes the
-        appropriate registered callbacks for the topic using the topic map stored in the
-        user data.
+        Handles incoming MQTT messages by processing them and executing corresponding callbacks registered to the topic.
 
-        :param _: The MQTT client instance that received the message.
-        :type _: mqtt.Client
-        :param userdata: The user-defined data passed to the callbacks, typically an
-            instance containing metadata or configurations such as a topic-to-callback
-            mapping.
-        :type userdata: MQTTClientUserData
-        :param message: The MQTT message received, containing topic, payload, and
-            other metadata.
-        :type message: mqtt.MQTTMessage
-        :return: None
+        This method is triggered whenever a subscribed topic receives a new message. It decodes the message payload,
+        maps it to the respective topic, and executes each callback associated with the topic. The callbacks
+        are executed using a callback runner for proper handling.
+
+        :param _:
+            Represents an instance of the MQTT client that initiated the callback. This parameter is typically
+            required by the MQTT library but is unused in this implementation.
+        :param userdata:
+            The user-specific data passed to the MQTT client. Should contain a `client` object with a `topic_map`
+            attribute mapping topics to their respective callbacks.
+        :param message:
+            The received MQTT message object containing information such as the message payload and topic.
+        :return:
+            None. This function does not return any value.
         """
         topic = message.topic
         topic_map = userdata.client.topic_map
@@ -302,8 +313,8 @@ class MQTTClient(object):
                    properties: mqtt.Properties):
         pass
 
-    def on_subscribe(self,
-                     _: mqtt.Client,  # client
+    @staticmethod
+    def on_subscribe(_: mqtt.Client,  # client
                      userdata: MQTTClientUserData,  # userdata
                      __: int,  # mid
                      reason_code_list: list[mqtt.ReasonCodes],
@@ -339,8 +350,8 @@ class MQTTClient(object):
                         properties: mqtt.Properties):
         pass
 
-    def on_disconnect(self,
-                      _: mqtt.Client,
+    @staticmethod
+    def on_disconnect(_: mqtt.Client,
                       userdata: MQTTClientUserData,
                       __: mqtt.DisconnectFlags,
                       reason_code: mqtt.ReasonCodes,
@@ -369,8 +380,8 @@ class MQTTClient(object):
 
 
 
-    def on_log(self,
-               _: mqtt.Client,  # client
+    @staticmethod
+    def on_log(_: mqtt.Client,  # client
                __: MQTTClientUserData,  # userdata
                level: int,
                buf: str):
