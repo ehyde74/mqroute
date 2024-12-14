@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Callable, Optional
 
 from .mqtt_message import MQTTMessage
@@ -20,6 +21,9 @@ class CallbackRequest(object):
         is received. It should accept a topic as a string, the received MQTT message,
         and an optional dictionary of parameters.
     :type cb_method: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None]
+    :ivar payload_format: Expected payload format for payload (default is JSON).
+        The type is any Enum type in order to allow customization of supported payload formats.
+    :type payload_format: Enum
     :ivar parameters: Optional parameters to provide additional context or metadata to
         the callback method. Default is an empty dictionary.
     :type parameters: Optional[dict[str, str]]
@@ -28,5 +32,6 @@ class CallbackRequest(object):
     :type topic: Optional[str]
     """
     cb_method: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None]
+    payload_format: Enum
     parameters: Optional[dict[str, str]] = field(default_factory=dict)
     topic: Optional[str] = None

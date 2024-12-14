@@ -52,12 +52,14 @@ class TopicNode(object):
     part: Optional[str]
     parameter: Optional[str] = None
     callback: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None] = None
+    payload_format: Enum = None
     nodes: dict[str, "TopicNode"] = field(default_factory=dict)
 
 
     def register(self,
                  parts: list[str],
-                 callback_method: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None]):
+                 callback_method: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None],
+                 payload_format: Enum):
         """
         Registers a callback method for a specific topic structure within a tree-like topic
         hierarchy. The method can handle both generic topics represented by "+", special topics
@@ -94,8 +96,9 @@ class TopicNode(object):
 
         if len(parts) == 1:
             node.callback = callback_method
+            node.payload_format = payload_format
         else:
-            node.register(parts[1:], callback_method)
+            node.register(parts[1:], callback_method, payload_format)
 
 
     def __check_topic(self, parts: list[str]):

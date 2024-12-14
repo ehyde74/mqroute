@@ -1,3 +1,5 @@
+from enum import Enum
+
 from .topic_node import TopicNode
 from mqroute.topic_match import TopicMatch
 from .callback_request import CallbackRequest
@@ -23,7 +25,10 @@ class CallbackResolver(object):
     def __init__(self):
         self.__nodes = TopicNode(part=None)
 
-    def register(self, topic: str, callback: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None]):
+    def register(self,
+                 topic: str,
+                 callback: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None],
+                 payload_format: Enum):
         """
         Registers a callback function for a specific MQTT topic. This function processes
         a topic string by splitting it into parts, registering the callback function with
@@ -46,13 +51,16 @@ class CallbackResolver(object):
             of the topic, the MQTTMessage object, and an optional dictionary of string
             parameters.
         :type callback: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None]
+        :ivar payload_format: Expected payload format for payload (default is JSON).
+            The type is any Enum type in order to allow customization of supported payload formats.
+        :type payload_format: Enum
 
         :return: The normalized topic string with proper wildcard adjustments, ready
             for MQTT subscription.
         :rtype: str
         """
         topic_parts = topic.split("/")
-        self.__nodes.register(topic_parts, callback)
+        self.__nodes.register(topic_parts, callback, payload_format)
 
         real_topic = []
         for part in topic_parts:
@@ -118,6 +126,7 @@ class CallbackResolver(object):
 
         return [CallbackRequest(topic=match.topic,
                                 cb_method=match.node.callback,
+                                payload_format=match.node.payload_format,
                                 parameters=match.parameters)
                 for match in topic_matches]
 

@@ -1,11 +1,15 @@
 import asyncio
 from inspect import iscoroutinefunction
+import json
 from typing import Optional
 
 from .mqtt_message import MQTTMessage
 from .callback_request import CallbackRequest
+from .payload_formats import PayloadFormat
 
 from logging import getLogger
+
+
 logger = getLogger(__name__)
 
 
@@ -49,6 +53,19 @@ class CallbackRunner(object):
     def loop(self, loop):
         self.__loop = loop
 
+    def convert_payload(self, request: CallbackRequest, payload: str):
+        if request.payload_format == PayloadFormat.JSON:
+            try:
+                ret_val = json.loads(payload)
+            except (json.JSONDecodeError, AttributeError, TypeError) as e:
+                logger.error(e)
+                ret_val = payload
+        elif request.payload_format == PayloadFormat.RAW:
+            ret_val = payload
+        else:
+            raise NotImplementedError(f"Custom payload formats ({request.payload_format}) are not yet supported!")
+        return ret_val
+
     async def process_callbacks(self):
         """
         Handles invocation of callback methods for queued request objects asynchronously.
@@ -65,10 +82,16 @@ class CallbackRunner(object):
         self.__ready = True
         while True:
             request, msg = await self.__queue.get()
+            try:
+                final_msg = MQTTMessage(topic=request.topic,
+                                        message=self.convert_payload(request, msg.message))
+            except Exception as e:
+                logger.error(e)
+                raise
             if iscoroutinefunction(request.cb_method):
-                await request.cb_method(request.topic, msg, request.parameters)
+                await request.cb_method(request.topic, final_msg, request.parameters)
             else:
-                request.cb_method(request.topic, msg, request.parameters)
+                request.cb_method(request.topic, final_msg, request.parameters)
 
 
 

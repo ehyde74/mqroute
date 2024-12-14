@@ -1,5 +1,4 @@
 import asyncio
-import json
 import socket
 import time
 from functools import singledispatchmethod
@@ -15,6 +14,7 @@ from .callback_runner import CallbackRunner
 from .mqtt_client_userdata import MQTTClientUserData
 from .mqtt_message import MQTTMessage
 from .mqtt_subscription import MQTTSubscription
+from .payload_formats import PayloadFormat
 from .qos import QOS
 
 __all__ = ["MQTTClient"]
@@ -105,42 +105,21 @@ class MQTTClient(object):
         :return: A decorator function that wraps the user's callback function.
         """
         def decorator(func):
-            convert_json = not raw_payload
+            payload_format = PayloadFormat.RAW if raw_payload else PayloadFormat.JSON
             # In practice, this checks just that it's Callable. Maybe more one day...
             check_type(func,
                        expected_type=Callable[[str, MQTTMessage, Optional[dict[str, str]]], None])
             # wrapper needs to be async too, otherwise it cannot be run with await....
             if iscoroutinefunction(func):
                 async def wrapper(*args, **kwargs):
-                    if convert_json:
-                        try:
-                            json_dict = json.loads(args[1].message)
-                            msg = MQTTMessage(message=json_dict, topic=args[0])
-                        except (json.JSONDecodeError, AttributeError, TypeError) as e:
-                            logger.error(f"Failed to decode JSON payload: {e}\n"
-                                         f"          faulty JSON: {args[1].message}")
-
-                            return # just dismiss the message.
-                    else:
-                        msg = args[1]
-                    return await func(args[0],msg, *args[2:], **kwargs)
+                    return await func(*args, **kwargs)
             else:
                 def wrapper(*args, **kwargs):
-                    if convert_json:
-                        try:
-                            json_dict = json.loads(args[1].message)
-                            msg = MQTTMessage(message=json_dict, topic=args[0])
-                        except (json.JSONDecodeError, AttributeError, TypeError) as e:
-                            logger.error(f"Failed to decode JSON payload: {e}\n"
-                                         f"          faulty JSON: {args[1].message}")
-
-                            return  # just dismiss the message.
-                    else:
-                        msg = args[1]
-                    return func(args[0], msg, *args[2:], **kwargs)
+                    return func(*args, **kwargs)
 
             rewritten_topic = self.__msg_callbacks.register(topic=topic,
-                                                            callback=wrapper)
+                                                            callback=wrapper,
+                                                            payload_format=payload_format)
             self.subscribe_topic(rewritten_topic, qos)
 
             return wrapper
