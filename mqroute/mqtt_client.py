@@ -5,6 +5,7 @@ from functools import singledispatchmethod
 from inspect import iscoroutinefunction
 from logging import getLogger
 from random import randint, uniform
+import signal
 from typing import Any, Callable, Optional
 
 from paho.mqtt import client as mqtt
@@ -51,6 +52,8 @@ class MQTTClient(object):
         self.__cb_runner = CallbackRunner()
         self.__cb_runner_task: Optional[asyncio.Task] = None
 
+        self.__running = False
+
         client_host_name = socket.gethostname()
         client_id = f"{client_host_name}-{randint(0, 1_000_000):x}"
 
@@ -68,6 +71,19 @@ class MQTTClient(object):
         if paho_logs:
             self.__client.on_log = self.on_log
         self.__client.on_unsubscribe = self.on_unsubscribe
+
+        self.sigstop_handlers = []
+
+        try:
+            signal.signal(signal.SIGSTOP, self.sigstop_handler)
+        except AttributeError:
+            # Probably windows, it doesn't have SIGSTOP. Let's try SIGTERM instead
+            signal.signal(signal.SIGTERM, self.sigstop_handler)
+        signal.signal(signal.SIGINT, self.sigstop_handler)
+
+    @property
+    def running(self):
+        return self.__running
 
     @property
     def callback_resolver(self):
@@ -124,7 +140,7 @@ class MQTTClient(object):
                                                             callback=wrapper,
                                                             payload_format=payload_format,
                                                             fallback=fallback)
-            self.subscribe_topic(rewritten_topic, qos)
+            self.__mqtt_subscribe(rewritten_topic, qos)
 
             return wrapper
 
@@ -204,6 +220,7 @@ class MQTTClient(object):
 
         :return: None
         """
+        self.__running = True
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None,
                                    self.__client.connect,
@@ -212,14 +229,54 @@ class MQTTClient(object):
 
         self.__cb_runner.loop = loop
         self.__cb_runner_task = asyncio.create_task(self.__cb_runner.process_callbacks())
+        self.__client.loop_start()
 
-        while True:
-            # Periodically call the client loop method
-            self.__client.loop(timeout=1.0)
-            await asyncio.sleep(0.1)
+    def stop(self):
+        """
+        Stops the running MQTT client loop and associated callback thread.
+
+        This method will safely stop the client loop and its associated callback runner,
+        ensuring all operations are halted cleanly.
+
+        :return: None
+        """
+        self.__running = False
+        self.__client.loop_stop()
+        self.__cb_runner.stop()
+
+    def sigstop_handler(self, signum, frame):
+        """
+        Handler for the SIGSTOP signal. Logs a termination message, executes all
+        registered `sigstop_handlers` functions, and initiates the stop process.
+
+        :param signum: Signal number received.
+        :param frame: Current stack frame at the time the signal was intercepted.
+        :return: None
+        """
+        logger.info("Terminating...")
+        for func in self.sigstop_handlers:
+            func()
+        self.stop()
+
+    def sigstop(self, func: Callable):
+        """
+        Decorator  that wraps a given function with additional functionality and appends it to the 
+        `sigstop_handlers` list of the current instance. The wrapped function can 
+        later be used for handling specific signal stop functionalities as needed.
+
+        :param func: The function to be wrapped and added to `sigstop_handlers`.
+        :type func: Callable
+        :return: The wrapped function that adds functionality to `sigstop_handlers`.
+        :rtype: Callable
+        """
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        self.sigstop_handlers.append(wrapper)
+        return wrapper
+
 
     @singledispatchmethod
-    def subscribe_topic(self, subscription: MQTTSubscription) -> MQTTSubscription:
+    def __mqtt_subscribe(self, subscription: MQTTSubscription) -> MQTTSubscription:
         """
         Subscribe to a topic by adding the given subscription to the list of current
         subscriptions and returns it. The method is a dispatch function for handling
@@ -232,7 +289,7 @@ class MQTTClient(object):
         self.__subscriptions.append(subscription)
         return subscription
 
-    @subscribe_topic.register
+    @__mqtt_subscribe.register
     def _(self, topic: str, qos: QOS) -> MQTTSubscription:
         """
         Subscribes to a specific MQTT topic with a designated quality of service (QoS) level
