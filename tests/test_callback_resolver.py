@@ -1,9 +1,6 @@
-import pytest
-from mqroute.callback_request import CallbackRequest
-from mqroute.callback_resolver import CallbackResolver
-from mqroute.mqtt_message import MQTTMessage
-from mqroute.topic_match import TopicMatch
-from mqroute.topic_node import TopicNode
+from mqroute import CallbackRequest
+from mqroute import CallbackResolver
+from mqroute import TopicMatch
 
 
 def test_register_valid_topic_and_callback():
