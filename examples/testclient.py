@@ -27,7 +27,10 @@ async def handle_weather2(topic: str, msg: mqroute.MQTTMessage, parameters: dict
     logger.info(f"         2 parameters: {parameters}")
     logger.info(f"         2 {payload_type}: {msg.message}")
 
-@mqtt.subscribe(topic="weather/#", qos=mqroute.QOS.EXACTLY_ONCE, raw_payload=True)
+@mqtt.subscribe(topic="weather/#",
+                qos=mqroute.QOS.EXACTLY_ONCE,
+                raw_payload=True,
+                fallback=True)
 def handle_weather3(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
     payload_type = type(msg.message).__name__
     logger.info("message:  (handle_weather3)")

@@ -81,7 +81,8 @@ class MQTTClient(object):
     def subscribe(self,
                   topic: str,
                   qos: QOS = QOS.AT_MOST_ONCE,
-                  raw_payload: bool = False):
+                  raw_payload: bool = False,
+                  fallback: bool = False):
         """
         The `subscribe` method facilitates MQTT topic subscription by allowing the user to create
         a decorator that processes incoming messages before invoking the decorated function.
@@ -102,6 +103,8 @@ class MQTTClient(object):
         :param qos: The Quality of Service level for the topic subscription.
         :param raw_payload: If set to True, the message payload will not be converted from JSON.
                             Defaults to False.
+        :param fallback: If set to True, the callback is only called when no other callbacks were called by
+                            the topic. Defaults to False.
         :return: A decorator function that wraps the user's callback function.
         """
         def decorator(func):
@@ -119,7 +122,8 @@ class MQTTClient(object):
 
             rewritten_topic = self.__msg_callbacks.register(topic=topic,
                                                             callback=wrapper,
-                                                            payload_format=payload_format)
+                                                            payload_format=payload_format,
+                                                            fallback=fallback)
             self.subscribe_topic(rewritten_topic, qos)
 
             return wrapper
