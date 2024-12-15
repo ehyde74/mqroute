@@ -27,16 +27,29 @@ async def handle_weather2(topic: str, msg: mqroute.MQTTMessage, parameters: dict
     logger.info(f"         2 parameters: {parameters}")
     logger.info(f"         2 {payload_type}: {msg.message}")
 
-@mqtt.subscribe(topic="weather/#", qos=mqroute.QOS.EXACTLY_ONCE, raw_payload=True)
+@mqtt.subscribe(topic="weather/#",
+                qos=mqroute.QOS.EXACTLY_ONCE,
+                raw_payload=True,
+                fallback=True)
 def handle_weather3(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
     payload_type = type(msg.message).__name__
     logger.info("message:  (handle_weather3)")
     logger.info(f"         3 topic: {topic}")
     logger.info(f"         3 {payload_type}: {msg.message}")
 
+@mqtt.sigstop
+def sigstop_handler():
+    logger.info("sigstop_handler called !!!!")
+
+
+async def main():
+    await mqtt.run()
+
+    # Keep the client running
+    while mqtt.running:
+        await asyncio.sleep(0.1)
 
 
 if __name__ == "__main__":
     basicConfig(level=DEBUG)
-    asyncio.run(mqtt.run())
-
+    asyncio.run(main())

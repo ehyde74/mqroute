@@ -1,5 +1,6 @@
 from enum import Enum
 
+from mqroute.payload_formats import PayloadFormat
 from .topic_node import TopicNode
 from mqroute.topic_match import TopicMatch
 from .callback_request import CallbackRequest
@@ -28,7 +29,8 @@ class CallbackResolver(object):
     def register(self,
                  topic: str,
                  callback: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None],
-                 payload_format: Enum):
+                 payload_format: Enum,
+                 fallback: bool = False):
         """
         Registers a callback function for a specific MQTT topic. This function processes
         a topic string by splitting it into parts, registering the callback function with
@@ -54,13 +56,15 @@ class CallbackResolver(object):
         :ivar payload_format: Expected payload format for payload (default is JSON).
             The type is any Enum type in order to allow customization of supported payload formats.
         :type payload_format: Enum
+        :ivar fallback: If True, the callback will be matched only if no other matches are found
+        :type fallback: bool
 
         :return: The normalized topic string with proper wildcard adjustments, ready
             for MQTT subscription.
         :rtype: str
         """
         topic_parts = topic.split("/")
-        self.__nodes.register(topic_parts, callback, payload_format)
+        self.__nodes.register(topic_parts, callback, payload_format, fallback)
 
         real_topic = []
         for part in topic_parts:
@@ -94,7 +98,7 @@ class CallbackResolver(object):
 
         The method is using caching in order to reduce the lookup time needed to
         traverse over the nodes. This is based on fact that single topic should
-        always bring same nodes as an result of lookup.
+        always bring same nodes as a result of lookup.
 
         :param topic: Topic string used to search for matching nodes.
         :type topic: str
@@ -102,9 +106,19 @@ class CallbackResolver(object):
         :rtype: list[TopicMatch]
         """
         match_list = self.__nodes.get_matching_nodes(topic.split("/"))
+        fallbacks = []
+        normal_callbacks = []
         for match in match_list:
             match.topic = topic
-        return match_list
+            if match.node.fallback:
+                fallbacks.append(match)
+            else:
+                normal_callbacks.append(match)
+
+        if normal_callbacks:
+            return normal_callbacks
+        else:
+            return fallbacks
 
 
 
@@ -138,15 +152,15 @@ if __name__ == "__main__":
         pass
 
     resolver = CallbackResolver()
-    resolver.register("car/dog/cat", cb_method)
-    resolver.register("car/+/cat", cb_method)
-    resolver.register("car/+/+", cb_method)
-    resolver.register("car/#", cb_method)
+    resolver.register("car/dog/cat", cb_method, payload_format=PayloadFormat.JSON)
+    resolver.register("car/+/cat", cb_method, payload_format=PayloadFormat.JSON)
+    resolver.register("car/+/+", cb_method, payload_format=PayloadFormat.JSON)
+    resolver.register("car/#", cb_method, payload_format=PayloadFormat.JSON)
 
-    resolver.register("bus/train/ship", cb_method)
-    resolver.register("bus/+vehicle+/ship", cb_method)
-    resolver.register("bus/+vehicle+/#", cb_method)
-    resolver.register("bus/+vehicle+/+boat+", cb_method)
+    resolver.register("bus/train/ship", cb_method, payload_format=PayloadFormat.JSON)
+    resolver.register("bus/+vehicle+/ship", cb_method, payload_format=PayloadFormat.JSON)
+    resolver.register("bus/+vehicle+/#", cb_method, payload_format=PayloadFormat.JSON)
+    resolver.register("bus/+vehicle+/+boat+", cb_method, payload_format=PayloadFormat.JSON)
 
     pprint.pprint(resolver.nodes, indent=2)
 

@@ -76,12 +76,17 @@ class CallbackRunner(object):
         is awaited; otherwise, it is executed synchronously. The method guarantees queued
         callback methods are invoked in the order they were added to the queue.
 
-        :return: This function does not return a value as it is intended to run indefinitely
-            while processing requests from the queue.
+        Method exits only after the queue has been shut down by using stop() method of the class.
+
+        :return: None
         """
         self.__ready = True
         while True:
-            request, msg = await self.__queue.get()
+            try:
+                request, msg = await self.__queue.get()
+            except asyncio.QueueShutDown:
+                break
+
             try:
                 final_msg = MQTTMessage(topic=request.topic,
                                         message=self.convert_payload(request, msg.message))
@@ -93,7 +98,16 @@ class CallbackRunner(object):
             else:
                 request.cb_method(request.topic, final_msg, request.parameters)
 
+    def stop(self):
+        """
+        Stops the processing by shutting down the internal queue.
 
+        This method ensures that all resources associated with the queue are properly
+        released, and no more items can be enqueued or processed. It should be
+        invoked when processing is complete or the queue needs to be terminated
+        gracefully.
+        """
+        self.__queue.shutdown()
 
     def run_callback(self, cb_request: CallbackRequest, msg: MQTTMessage):
         """

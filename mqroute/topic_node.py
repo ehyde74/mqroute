@@ -52,14 +52,16 @@ class TopicNode(object):
     part: Optional[str]
     parameter: Optional[str] = None
     callback: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None] = None
-    payload_format: Enum = None
+    payload_format: Optional[Enum] = None
+    fallback: Optional[bool] = None
     nodes: dict[str, "TopicNode"] = field(default_factory=dict)
 
 
     def register(self,
                  parts: list[str],
                  callback_method: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None],
-                 payload_format: Enum):
+                 payload_format: Enum,
+                 fallback: bool = False):
         """
         Registers a callback method for a specific topic structure within a tree-like topic
         hierarchy. The method can handle both generic topics represented by "+", special topics
@@ -75,7 +77,11 @@ class TopicNode(object):
             object of type MQTTMessage, and an optional dictionary of parameters (if present)
             extracted from the topic.
         :type callback_method: Callable[[str, MQTTMessage, Optional[dict[str, str]]], None]
-        :return: None
+        ivar payload_format: Expected payload format for payload (default is JSON).
+            The type is any Enum type in order to allow customization of supported payload formats.
+        :type payload_format: Enum
+        :ivar fallback: If True, the callback will be matched only if no other matches are found
+        :type payload_format: bool:return: None
         :rtype: None
         """
         part = parts[0]
@@ -97,8 +103,9 @@ class TopicNode(object):
         if len(parts) == 1:
             node.callback = callback_method
             node.payload_format = payload_format
+            node.fallback = fallback
         else:
-            node.register(parts[1:], callback_method, payload_format)
+            node.register(parts[1:], callback_method, payload_format, fallback)
 
 
     def __check_topic(self, parts: list[str]):
