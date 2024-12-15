@@ -30,16 +30,13 @@ Whether you're building an IoT platform or a messaging service, `MQRoute` makes 
 
 ## **Installation**
 
-You need to install MQRoute by either downloading source code from github by using it as sub repo. In the future also
-pip install should be available.
+You can install MQRoute simply by using pip:
 
-
-Additions to your `requirements.txt` (or dependency file) should include:
-```text
-paho-mqtt
-typeguard
+```shell
+pip install mqroute
 ```
 
+You may also down it from git for example when some local modification are needed. That's your call!
 ---
 
 ## **Getting Started**
@@ -105,15 +102,17 @@ from mqroute.mqtt_client import MQTTClient
 
 mqtt = MQTTClient(host="test.mosquitto.org", port=1883)
 
+
 @mqtt.subscribe(topic="devices/+/status")
 async def handle_device_status(topic, msg, params):
     print(f"Device {params[0]} status: {msg.message}")
 
+
 @mqtt.subscribe(topic="sensors/+light+/status", convert_json=True)
 async def handle_light_status(topic, msg, params):
-    sensor = params["light"] 
+    sensor = params["light"]
     print(f"{sensor} sensor status: {msg.message}")
-    
+
 
 asyncio.run(mqtt.run())
 ```
@@ -150,7 +149,9 @@ pytest tests/
 
 - **Message Publishing API:** Simple methods for publishing MQTT messages.
 - **Graceful Shutdowns:** Cleaning up resources (e.g., unsubscribing tasks) on application stop.
-- **pip support:** Make the library installable with pip
+- **Customization and extendability:** Allow easy means  to support for example custom payload formats
+- **Dynamic subscriptions:** Subscribe MQTT topics without decorators in order to allow dynamic
+   construction of mqroute application.
 ---
 
 ## **Contributing**
