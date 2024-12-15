@@ -73,23 +73,42 @@ async def handle_sensor_data(topic, msg, params):
 
 JSON payloads are converted automatically to dictionaries. In case this is not desired
  `convert_json` parameter in the decorator can be set to `False` to receive raw data in callback instead.
- The value of `convert_json` defaults to `True`.
+ The value of `convert_json` defaults to `True`. The callback can also be defined to be fallback; if so,
+ the callback is only called if topic doesn't match any non-fallback topics. Note, multiple fallback methods
+ can be defined, and multiple fallbacks may match and ths be called.
 
 ```python
-@mqtt.subscribe(topic="config/update/json", convert_json=True)
-async def handle_config_update(topic, msg, params):
+@mqtt.subscribe(topic="config/update/json")
+async def handle_config_update1(topic, msg, params):
     # Access the payload as a Python dictionary
     config_data_as_dict = msg.message
     print(f"Received config update: {config_data_as_dict}")
 
-@mqtt.subscribe(topic="config/update/raw", convert_json=False)
-async def handle_config_update(topic, msg, params):
+@mqtt.subscribe(topic="config/update/raw", raw_payload=True)
+async def handle_config_update2(topic, msg, params):
+    # Access the payload as a raw string
+    config_data_as_raw = msg.message
+    print(f"Received config update: {config_data_as_raw}")
+    
+@mqtt.subscribe(topic="config/#", raw_payload=True, fallback=True)
+async def handle_config_update3(topic, msg, params):
     # Access the payload as a raw string
     config_data_as_raw = msg.message
     print(f"Received config update: {config_data_as_raw}")
 
 ```
 
+---
+
+### Custom signal handling for terminating application
+Custom termination logic can be applied by using decorator sigstop:
+
+```python
+@mqtt.sigstop
+async def sigstop_handler():
+    # termination requested
+    print(f"Received request to terminate application.")
+```
 ---
 
 ## **Example: Full Client Code**
@@ -108,13 +127,33 @@ async def handle_device_status(topic, msg, params):
     print(f"Device {params[0]} status: {msg.message}")
 
 
-@mqtt.subscribe(topic="sensors/+light+/status", convert_json=True)
+@mqtt.subscribe(topic="sensors/+light+/status")
 async def handle_light_status(topic, msg, params):
     sensor = params["light"]
     print(f"{sensor} sensor status: {msg.message}")
 
+@mqtt.subscribe(topic="sensors/#", raw_payload=True, fallback=True)
+async def handle_light_status(topic, msg, params):
+    sensor = params["light"]
+    print(f"{sensor} sensor status: {msg.message}")
+    
+@mqtt.sigstop
+async def sigstop_handler():
+    # termination requested
+    print(f"Received request to terminate application.")
 
-asyncio.run(mqtt.run())
+
+
+async def main():
+    await mqtt.run()
+
+    # Keep the client running
+    while mqtt.running:
+        await asyncio.sleep(0.1)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
@@ -148,7 +187,6 @@ pytest tests/
 ## **Planned Improvements**
 
 - **Message Publishing API:** Simple methods for publishing MQTT messages.
-- **Graceful Shutdowns:** Cleaning up resources (e.g., unsubscribing tasks) on application stop.
 - **Customization and extendability:** Allow easy means  to support for example custom payload formats
 - **Dynamic subscriptions:** Subscribe MQTT topics without decorators in order to allow dynamic
    construction of mqroute application.
