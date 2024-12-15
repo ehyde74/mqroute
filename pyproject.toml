@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mqroute"
+version = "0.1.1"
+authors = [
+  { name="ehyde74" },
+]
+description = "MQRoute is a Python library designed to simplify working with MQTT"
+readme = {file = "README.md", content-type = "text/markdown"}
+keywords = ["mqtt", "asyncio", "decorators"]
+license = {text = "MIT License"}
+requires-python = ">=3.8"
+dependencies = [
+  "paho-mqtt>=2.1.0",
+  "typeguard>=4.4.1",
+  "pytest>=8.3.4"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/ehyde74/mqroute"

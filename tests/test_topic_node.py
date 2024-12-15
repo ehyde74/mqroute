@@ -1,7 +1,5 @@
 # test_topic_node.py
 
-import pytest
-
 from mqroute.topic_node import TopicNode
 
 def test_register_creates_hierarchy():
