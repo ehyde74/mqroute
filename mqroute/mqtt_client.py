@@ -1,3 +1,22 @@
+"""
+This module provides functionality for creating and managing an MQTT client.
+
+It includes necessary methods for connecting to an MQTT broker, subscribing to topics,
+publishing messages, and handling incoming messages.
+
+The implementation is done in Python 3.13.1 and relies on the `paho-mqtt` library for
+the MQTT protocol handling.
+
+Dependencies:
+- docutils
+- pip
+- pylint
+- pytest
+- requests
+- wheel
+
+Make sure to configure the MQTT broker settings appropriately before using the module.
+"""
 import asyncio
 import socket
 import time
@@ -25,20 +44,55 @@ from .callback_resolver import CallbackResolver
 logger = getLogger(__name__)
 
 
-class MQTTClient(object):
+class MQTTClient:
+    """
+    The MQTTClient class provides a wrapper around the Paho MQTT library to manage MQTT
+    connections, subscriptions, and messaging callbacks. It facilitates setting up MQTT
+    communication with additional utilities for message handling, subscriptions, decorators,
+    and logging. The class is highly configurable, allowing for easy integration into various
+    applications requiring MQTT messaging.
+
+    This class configures connection management, initializes callbacks, and supports advanced
+    features such as JSON payload processing, fallback mechanisms, and wildcard topic handling.
+
+    :ivar __host: The MQTT broker host to connect to.
+    :type __host: str
+    :ivar __port: The MQTT broker port to connect to.
+    :type __port: int
+    :ivar __backoff_time: Tracks the backoff duration for connection retries.
+    :type __backoff_time: int
+    :ivar __subscriptions: Holds the list of active MQTT subscriptions.
+    :type __subscriptions: list[MQTTSubscription]
+    :ivar __msg_callbacks: Manages message callbacks for MQTT topics.
+    :type __msg_callbacks: CallbackResolver
+    :ivar __cb_runner: Handles execution of the callback queue.
+    :type __cb_runner: CallbackRunner
+    :ivar __cb_runner_task: Task associated with running callbacks.
+    :type __cb_runner_task: Optional[asyncio.Task]
+    :ivar __running: Tracks if the MQTT client is running.
+    :type __running: bool
+    :ivar __client: The internal Paho MQTT client instance.
+    :type __client: mqtt.Client
+    :ivar sigstop_handlers: Handlers for SIGSTOP and related signals.
+    :type sigstop_handlers: list
+    """
+    # pylint: disable=too-many-instance-attributes
     # noinspection PyArgumentList
     @typechecked
     def __init__(self, *, host: str, port: int = 1883, paho_logs = False):
         """
-        Initializes an MQTTClient instance with essential configurations such as host, port, and optional logging.
-        This class configures the client's callbacks and prepares it to handle MQTT network operations, including
-        connection, subscription, messaging, publishing, and logging.
+        Initializes an MQTTClient instance with essential configurations such as host, port, and
+        optional logging. This class configures the client's callbacks and prepares it to handle
+        MQTT network operations, including connection, subscription, messaging, publishing, and
+        logging.
 
         :param host: Hostname or IP address of the MQTT broker to connect to.
         :type host: str
-        :param port: Port number of the MQTT broker for connection. If not provided, defaults to 1883.
+        :param port: Port number of the MQTT broker for connection. If not provided, defaults
+                     to 1883.
         :type port: int
-        :param paho_logs: Optional parameter to enable or disable Paho MQTT client logs. Defaults to False.
+        :param paho_logs: Optional parameter to enable or disable Paho MQTT client logs. Defaults
+                          to False.
         :type paho_logs: bool
         """
         self.__host: str = host
@@ -50,14 +104,20 @@ class MQTTClient(object):
 
         self.__msg_callbacks: CallbackResolver = CallbackResolver()
         self.__cb_runner = CallbackRunner()
-        self.__cb_runner_task: Optional[asyncio.Task] = None
+
+        # this is unused, however, the task needs to be stored somewhere in order
+        # to avoid it be garbage collected and thus killed prematurely.
+        self.__cb_runner_task: Optional[asyncio.Task] = None # pylint: disable=unused-private-member
 
         self.__running = False
 
         client_host_name = socket.gethostname()
         client_id = f"{client_host_name}-{randint(0, 1_000_000):x}"
 
-        logger.info(f"Initializing MQTTClient: {client_id=}, {host=}, {port=}")
+        logger.info("Initializing MQTTClient: client_id=%s, host=%s, port=%s",
+                    client_id,
+                    host,
+                    port)
         self.__client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         userdata = MQTTClientUserData(self)
         self.__client.user_data_set(userdata)
@@ -83,10 +143,31 @@ class MQTTClient(object):
 
     @property
     def running(self):
+        """
+        Indicates whether the related process or service is currently in a running state.
+
+        The `running` property provides a Boolean value reflecting the status of the
+        underlying process or service. It is used to determine if the process/service
+        is actively running or has been stopped. This property is read-only.
+
+        :rtype: bool
+        :return: True if the process/service is running, otherwise False.
+        """
         return self.__running
 
     @property
     def callback_resolver(self):
+        """
+        Provides access to the internal message callback resolver.
+
+        This property returns the stored message callback dictionary that associates
+        specific message types or identifiers with their corresponding callbacks.
+        It is intended to facilitate the retrieval or management of the message-to-callback
+        mappings for message handling processes.
+
+        :rtype: dict
+        :return: The dictionary containing message-to-callback mappings.
+        """
         return self.__msg_callbacks
 
     @callback_resolver.setter
@@ -119,8 +200,8 @@ class MQTTClient(object):
         :param qos: The Quality of Service level for the topic subscription.
         :param raw_payload: If set to True, the message payload will not be converted from JSON.
                             Defaults to False.
-        :param fallback: If set to True, the callback is only called when no other callbacks were called by
-                            the topic. Defaults to False.
+        :param fallback: If set to True, the callback is only called when no other callbacks were
+                         called by the topic. Defaults to False.
         :return: A decorator function that wraps the user's callback function.
         """
         def decorator(func):
@@ -140,7 +221,8 @@ class MQTTClient(object):
                                                             callback=wrapper,
                                                             payload_format=payload_format,
                                                             fallback=fallback)
-            self.__mqtt_subscribe(rewritten_topic, qos)
+            # pylint does not handle overloaded variants of this dispatchmethod
+            self.__mqtt_subscribe(rewritten_topic, qos=qos) # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
 
             return wrapper
 
@@ -189,8 +271,14 @@ class MQTTClient(object):
             try:
                 self.connect()
                 break
-            except Exception as e:
-                logger.warning(f"Reconnect failed: {e}. Retrying in {backoff} seconds...")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                # catch exception. This is reconnect, so stupid mistakes like invalid host name
+                # are found earlier - the connection was working already. Also, paho does not
+                # document exceptions possible raised by connect so we cannot easily be more
+                # specific.
+                logger.warning("Reconnect failed: %s. Retrying in %s seconds...",
+                               e,
+                               backoff)
                 time.sleep(self.__backoff_time)
                 backoff = min(60, backoff * 2 + uniform(0, 1))  # cap at 60 seconds
 
@@ -228,7 +316,9 @@ class MQTTClient(object):
                                    self.__port)
 
         self.__cb_runner.loop = loop
-        self.__cb_runner_task = asyncio.create_task(self.__cb_runner.process_callbacks())
+        # this is unused, however, the task needs to be stored somewhere in order
+        # to avoid it be garbage collected and thus killed prematurely.
+        self.__cb_runner_task = asyncio.create_task(self.__cb_runner.process_callbacks()) # pylint: disable=unused-private-member
         self.__client.loop_start()
 
     def stop(self):
@@ -244,7 +334,9 @@ class MQTTClient(object):
         self.__client.loop_stop()
         self.__cb_runner.stop()
 
-    def sigstop_handler(self, signum, frame):
+    def sigstop_handler(self,
+                        _,     #signum,
+                        __ ):  # frame
         """
         Handler for the SIGSTOP signal. Logs a termination message, executes all
         registered `sigstop_handlers` functions, and initiates the stop process.
@@ -308,6 +400,10 @@ class MQTTClient(object):
         self.__subscriptions.append(subscription)
         return subscription
 
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+    # these are callbacks with signatures defined in paho.mqtt - and we can't do anything
+    # to these having too many arguments.
+
     @staticmethod
     def on_connect(client: mqtt.Client,
                    userdata: MQTTClientUserData,
@@ -326,14 +422,15 @@ class MQTTClient(object):
         :param userdata: User-defined data of type MQTTClientUserData, which typically holds
             application-specific information, including client's subscriptions.
         :param _: A dictionary representing the connection flags in MQTT protocol.
-        :param reason_code: The reason code for the connection result as provided by the MQTT broker.
+        :param reason_code: The reason code for the connection result as provided by the MQTT
+                            broker.
         :param __: MQTT properties that are associated with the connection establishment.
         :return: None
         """
-        logger.debug(f"Connected with reason code '{reason_code}'")
+        logger.debug("Connected with reason code %s", reason_code)
         subscriptions = [ (s.topic, s.qos)  for s in userdata.client.subscriptions]
         if subscriptions:
-            logger.debug(f" => Subscribing {subscriptions}")
+            logger.debug(" => Subscribing %s", subscriptions)
             client.subscribe(subscriptions)
         else:
             logger.warning(" => Nothing to subscribe")
@@ -345,20 +442,22 @@ class MQTTClient(object):
                    userdata: MQTTClientUserData,
                    message: mqtt.MQTTMessage):
         """
-        Handles incoming MQTT messages by processing them and executing corresponding callbacks registered to the topic.
+        Handles incoming MQTT messages by processing them and executing corresponding callbacks
+        registered to the topic.
 
-        This method is triggered whenever a subscribed topic receives a new message. It decodes the message payload,
-        maps it to the respective topic, and executes each callback associated with the topic. The callbacks
-        are executed using a callback runner for proper handling.
+        This method is triggered whenever a subscribed topic receives a new message. It decodes
+        the message payload, maps it to the respective topic, and executes each callback associated
+        with the topic. The callbacks are executed using a callback runner for proper handling.
 
         :param _:
-            Represents an instance of the MQTT client that initiated the callback. This parameter is typically
-            required by the MQTT library but is unused in this implementation.
+            Represents an instance of the MQTT client that initiated the callback. This parameter
+            is typically required by the MQTT library but is unused in this implementation.
         :param userdata:
-            The user-specific data passed to the MQTT client. Should contain a `client` object with a `topic_map`
-            attribute mapping topics to their respective callbacks.
+            The user-specific data passed to the MQTT client. Should contain a `client` object with
+            a `topic_map` attribute mapping topics to their respective callbacks.
         :param message:
-            The received MQTT message object containing information such as the message payload and topic.
+            The received MQTT message object containing information such as the message payload and
+            topic.
         :return:
             None. This function does not return any value.
         """
@@ -367,8 +466,8 @@ class MQTTClient(object):
         msg = MQTTMessage(topic=message.topic,
                           message=message.payload.decode('utf-8'))
         for cb in topic_map.callbacks(topic):
-             #cb.cb_method(cb.topic, msg, cb.parameters)
-             self.__cb_runner.run_callback(cb, msg)
+            #cb.cb_method(cb.topic, msg, cb.parameters)
+            self.__cb_runner.run_callback(cb, msg)
 
 
 
@@ -378,7 +477,21 @@ class MQTTClient(object):
                    mid: int,
                    reason_code: mqtt.ReasonCodes,
                    properties: mqtt.Properties):
-        pass
+        """
+        Handles the event triggered when a message is successfully published.
+
+        This callback is invoked upon the completion of a message publishing
+        operation. It provides details about the publishing process, including the
+        message ID, reason code, and any properties included.
+
+        :param client: An instance of the MQTT client that triggered the callback.
+        :param userdata: A user-defined data structure containing context.
+        :param mid: The unique identifier of the published message.
+        :param reason_code: The result of the publish action, represented as a reason code.
+        :param properties: Additional MQTT properties associated with the publish event.
+        :return: None
+        """
+
 
     @staticmethod
     def on_subscribe(_: mqtt.Client,  # client
@@ -404,10 +517,10 @@ class MQTTClient(object):
             to the subscription.
         :return: None
         """
-        logger.debug(f"Subscriptions completed with following reason codes:")
+        logger.debug("Subscriptions completed with following reason codes:")
 
         for sub, reason in zip(userdata.client.subscriptions, reason_code_list):
-            logger.debug(f"    {sub.topic}: '{reason}'")
+            logger.debug("   %s: '%s'", sub.topic, reason)
 
     def on_connect_fail(self,
                         client: mqtt.Client,
@@ -415,7 +528,23 @@ class MQTTClient(object):
                         mid: int,
                         reason_code_list: list[mqtt.ReasonCodes],
                         properties: mqtt.Properties):
-        pass
+        """
+        Callback triggered when the client fails to connect to the MQTT broker.
+
+        This method is called when a connection attempt to the broker fails.
+        The reason for the failure, along with other pertinent details, is
+        provided through the parameters.
+
+        :param client: The MQTT client instance that failed the connection attempt.
+        :param userdata: The private user data object provided to the client,
+            which can be used to maintain application data related to the connection.
+        :param mid: The message identifier associated with the connection attempt.
+        :param reason_code_list: A list of reason codes providing detail about why
+            the connection attempt failed.
+        :param properties: Set of properties for the MQTT message
+            associated with the connection attempt, following MQTT v5.0 protocols.
+        :return: None
+        """
 
     @staticmethod
     def on_disconnect(_: mqtt.Client,
@@ -440,7 +569,7 @@ class MQTTClient(object):
             properties and metadata related to the disconnection.
         :return: None
         """
-        logger.warning(f"Disconnected with reason {reason_code}")
+        logger.warning("Disconnected with reason %s", reason_code)
         logger.info("Trying to reconnect")
         userdata.client.reconnect()
 
@@ -475,8 +604,25 @@ class MQTTClient(object):
                        disconnect_flags: mqtt.DisconnectFlags,
                        reason_code: mqtt.ReasonCodes,
                        properties: mqtt.Properties):
-        pass
+        """
+        This method is a callback invoked when the client completes an unsubscribe request to the
+        broker. It provides information about the unsubscribe operation, including user data,
+        disconnect flags, reason code, and any properties associated with the process.
 
+        :param client: The MQTT client instance that is invoking the callback.
+        :type client: mqtt.Client
+        :param userdata: The private user data set for the client. It is passed to callbacks as-is
+            without any modifications.
+        :type userdata: MQTTClientUserData
+        :param disconnect_flags: Flags indicating the disconnection state of the client.
+        :type disconnect_flags: mqtt.DisconnectFlags
+        :param reason_code: The reason code for unsubscribing as sent by the broker. Useful to
+            understand why the unsubscribe was processed.
+        :type reason_code: mqtt.ReasonCodes
+        :param properties: Optional properties associated with the unsubscribe process, provided
+            in MQTT v5.0 or higher. May include broker-specific metadata.
+        :type properties: mqtt.Properties
+        :return: None
+        """
 
-
-
+    # pylint: enable=too-many-arguments

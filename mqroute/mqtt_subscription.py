@@ -1,5 +1,20 @@
+"""
+This module provides functionality for managing MQTT subscriptions, including subscribing to topics
+with configurable QoS (Quality of Service) levels and handling incoming messages as specified by the
+MQTT protocol.
+
+Quality of Service (QoS) levels:
+- `AT_MOST_ONCE`: Guarantees a best-effort delivery, with no acknowledgment or retries.
+- `AT_LEAST_ONCE`: Guarantees that messages will be delivered at least once, using acknowledgments
+  to ensure delivery.
+- `EXACTLY_ONCE`: Ensures that messages are delivered exactly once, with a handshake mechanism for
+  duplication mitigation.
+
+The module is designed as part of an MQTT client implementation to effectively manage topic-based
+subscriptions, message dispatching, and related configurations.
+"""
+
 from dataclasses import dataclass
-from typing import Optional
 
 
 
@@ -9,7 +24,7 @@ from .qos import QOS
 
 
 @dataclass
-class MQTTSubscription(object):
+class MQTTSubscription:
     """
     Represents an MQTT subscription.
 

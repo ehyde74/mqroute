@@ -1,19 +1,34 @@
+"""
+This module defines classes and functions essential for handling MQTT callbacks using
+an asynchronous event-driven architecture. It focuses on processing MQTT messages,
+formatting payloads, and executing user-defined callback methods. Key components include:
+
+- `MQTTMessage`: Represents an MQTT message with its topic and payload.
+- `CallbackRequest`: Encapsulates data for managing a callback request, including the
+  callback function, payload format, and optional parameters.
+- `PayloadFormat`: Enumeration defining supported payload formats, such as `RAW` and `JSON`.
+- `CallbackRunner`: Implements a processing loop to manage and execute asynchronous callback
+  requests for MQTT messages.
+
+The module is designed to ensure flexibility and reliability when integrating with external
+messaging systems, providing tools for message payload conversion and safe execution of callbacks.
+"""
+
 import asyncio
 from inspect import iscoroutinefunction
 import json
+from logging import getLogger
 from typing import Optional
 
 from .mqtt_message import MQTTMessage
 from .callback_request import CallbackRequest
 from .payload_formats import PayloadFormat
 
-from logging import getLogger
-
 
 logger = getLogger(__name__)
 
 
-class CallbackRunner(object):
+class CallbackRunner:
     """
     This class provides functionality for processing callback requests in an
     asynchronous event-driven architecture. It maintains a queue of requests
@@ -35,14 +50,28 @@ class CallbackRunner(object):
     __queue = asyncio.Queue()
 
     def __init__(self):
+        """
+        Represents a class that encapsulates managing an asynchronous event loop
+        and an internal state indicating readiness.
+
+        Attributes
+        ----------
+        __loop : Optional[asyncio.AbstractEventLoop]
+            The asyncio event loop used by the class. Defaults to None when not set.
+        __ready : bool
+            Indicates whether the class is in a ready state. Defaults to False during
+            initialization.
+
+        """
         self.__loop: Optional[asyncio.AbstractEventLoop] = None
         self.__ready: bool = False
 
     @property
-    def loop(self):
+    def loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """
-        Provides access to the 'loop' property that is asyncio loop, which returns the private attribute '__loop'.
-        This property is read-only and does not allow modification.
+        Provides access to the 'loop' property that is asyncio loop, which returns
+        the private attribute '__loop'. This property is read-only and does not
+        allow modification.
 
         :return: The value of the private '__loop' attribute.
         :rtype: Same type as the '__loop' attribute.
@@ -50,10 +79,27 @@ class CallbackRunner(object):
         return self.__loop
 
     @loop.setter
-    def loop(self, loop):
+    def loop(self, loop: Optional[asyncio.AbstractEventLoop]):
         self.__loop = loop
 
     def convert_payload(self, request: CallbackRequest, payload: str):
+        """
+        Converts the given payload based on its specified format in the request object. This method
+        transforms the payload into a Python object if the format is JSON, retains it in its raw
+        string form for RAW formats, or raises an error for unrecognized formats. The method logs
+        errors that occur during JSON processing and returns the payload unchanged.
+
+        :param request: An object containing details about the callback request, including
+            the expected payload format.
+        :type request: CallbackRequest
+        :param payload: The input payload to be converted, potentially in JSON string
+            or raw string format.
+        :return: Returns the converted payload as a Python object if the payload format
+            is JSON, or as a string if the format is RAW.
+        :rtype: Union[dict, str]
+
+        :raises NotImplementedError: If the payload format is not recognized.
+        """
         if request.payload_format == PayloadFormat.JSON:
             try:
                 ret_val = json.loads(payload)
@@ -63,7 +109,8 @@ class CallbackRunner(object):
         elif request.payload_format == PayloadFormat.RAW:
             ret_val = payload
         else:
-            raise NotImplementedError(f"Custom payload formats ({request.payload_format}) are not yet supported!")
+            msg = f"Unknown payload format: {request.payload_format}"
+            raise NotImplementedError(msg)
         return ret_val
 
     async def process_callbacks(self):
@@ -124,5 +171,6 @@ class CallbackRunner(object):
         while not self.__ready:
             print("Processor not ready yet.")
             return
+
         if self.__loop is not None:
             asyncio.run_coroutine_threadsafe(self.__queue.put((cb_request, msg)), self.__loop)

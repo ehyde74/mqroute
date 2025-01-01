@@ -1,3 +1,18 @@
+"""
+This module provides functionality for handling nodes related to topics
+in MQTT-based communication. It includes structures and utilities
+to define, publish, and subscribe to topics as well as to process
+related messages efficiently.
+
+Classes:
+    MQTTMessage: Encapsulates information about a published or
+    subscribed MQTT message, including its topic and message content.
+
+The module aims to offer a flexible interface for dealing with MQTT topics
+and associated messages, supporting multiple payload representations such
+as dictionaries or plain text.
+"""
+
 import copy
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -17,14 +32,14 @@ class MatchState(Enum):
     node-based system.
 
     """
-    NoMatch = auto()
-    RootNode = auto()
-    PartialTopic = auto()
-    FullTopic = auto()
+    NO_MATCH = auto()
+    ROOT_NODE = auto()
+    PARTIAL_TOPIC = auto()
+    FULL_TOPIC = auto()
 
 
 @dataclass
-class TopicNode(object):
+class TopicNode:
     """
     Represents a node in a hierarchical topic structure for MQTT.
 
@@ -123,26 +138,26 @@ class TopicNode(object):
         :rtype: tuple[MatchState, dict[str, str]]
         """
         parameters = {}
-        match: MatchState = MatchState.NoMatch
+        match: MatchState = MatchState.NO_MATCH
 
         if self.part == "#":
-            match = MatchState.FullTopic
+            match = MatchState.FULL_TOPIC
         elif self.part == "+":
             if self.parameter:
                 parameters[self.parameter] = parts[0]
             if len(parts) == 1 and not self.nodes:
-                match = MatchState.FullTopic
+                match = MatchState.FULL_TOPIC
             elif len(parts) == 1 and self.nodes:
-                match = MatchState.NoMatch
+                match = MatchState.NO_MATCH
             else:
-                match = MatchState.PartialTopic
+                match = MatchState.PARTIAL_TOPIC
         elif self.part == parts[0]:
             if len(parts) == 1 and not self.nodes:
-                match = MatchState.FullTopic
+                match = MatchState.FULL_TOPIC
             elif len(parts) == 1 and self.nodes:
-                match = MatchState.NoMatch
+                match = MatchState.NO_MATCH
             else:
-                match = MatchState.PartialTopic
+                match = MatchState.PARTIAL_TOPIC
 
         return match, parameters
 
@@ -172,28 +187,26 @@ class TopicNode(object):
             local_parameters = copy.deepcopy(parameters)
 
         if self.part is None:
-            match = MatchState.RootNode
+            match = MatchState.ROOT_NODE
         else:
             match, node_parameters = self.__check_topic(topic_parts)
 
             local_parameters.update(node_parameters)
 
-        if match == MatchState.FullTopic:
+        match_nodes = []
+        if match == MatchState.FULL_TOPIC:
             topic_match = TopicMatch(node=self,
                                      parameters=local_parameters)
-            return [topic_match]
-        elif match == MatchState.PartialTopic:
+            match_nodes.append(topic_match)
+        elif match == MatchState.PARTIAL_TOPIC:
             match_nodes = []
             for node in self.nodes.values():
                 local_nodes = node.get_matching_nodes(topic_parts[1:], local_parameters)
                 match_nodes.extend(local_nodes)
-            return match_nodes
-        elif match == MatchState.RootNode:
+        elif match == MatchState.ROOT_NODE:
             match_nodes = []
             for node in self.nodes.values():
                 local_nodes = node.get_matching_nodes(topic_parts, local_parameters)
                 match_nodes.extend(local_nodes)
 
-            return match_nodes
-
-        return []
+        return match_nodes
