@@ -1,16 +1,34 @@
-from enum import Enum
+"""
+Module: callback_resolver
 
-from mqroute.payload_formats import PayloadFormat
-from .topic_node import TopicNode
-from mqroute.topic_match import TopicMatch
-from .callback_request import CallbackRequest
-from .mqtt_message import MQTTMessage
+This module provides functionalities to resolve and handle callback execution
+by mapping or interpreting callback definitions and invoking them appropriately.
+
+Classes:
+- PayloadFormat: Enumerates supported payload formats.
+
+Enums:
+- PayloadFormat
+  - RAW: Represents raw payload data.
+  - JSON: Represents JSON-encoded payload data.
+
+Dependencies:
+- Python standard libraries
+- Installed packages: requests, docutils, pylint, pytest
+"""
+from enum import Enum
 
 from typing import Optional, Callable
 from functools import lru_cache
 
+from .payload_formats import PayloadFormat
+from .topic_node import TopicNode
+from .topic_match import TopicMatch
+from .callback_request import CallbackRequest
+from .mqtt_message import MQTTMessage
 
-class CallbackResolver(object):
+
+class CallbackResolver:
     """
     Manages the registration and resolution of callbacks bound to topics. It acts as a route
     handler for topics, allowing dynamic registration of callback functions which are invoked
@@ -92,9 +110,10 @@ class CallbackResolver(object):
     @lru_cache(maxsize=128)
     def get_matching_nodes(self, topic: str) -> list[TopicMatch]:
         """
-        Fetches and returns a list of matching nodes for the provided topic. This method interacts with
-        the internal nodes structure to find matches based on the topic split by `/`. The retrieved matching
-        nodes will have their `topic` attribute updated with the provided topic string.
+        Fetches and returns a list of matching nodes for the provided topic. This method interacts
+        with the internal nodes structure to find matches based on the topic split by `/`. The
+        retrieved matching nodes will have their `topic` attribute updated with the provided topic
+        string.
 
         The method is using caching in order to reduce the lookup time needed to
         traverse over the nodes. This is based on fact that single topic should
@@ -117,8 +136,8 @@ class CallbackResolver(object):
 
         if normal_callbacks:
             return normal_callbacks
-        else:
-            return fallbacks
+
+        return fallbacks
 
 
 
@@ -149,7 +168,7 @@ if __name__ == "__main__":
     import pprint
 
     def cb_method(_: str, __: MQTTMessage, ___: dict[str, str]):
-        pass
+        """Dummy callback for following test method calls"""
 
     resolver = CallbackResolver()
     resolver.register("car/dog/cat", cb_method, payload_format=PayloadFormat.JSON)
