@@ -1,6 +1,9 @@
+# pylint: skip-file
+# test code tends to be not so clean so at least at this stage of the project we just disable pylint here
 from mqroute import CallbackRequest
-from mqroute import CallbackResolver
-from mqroute import TopicMatch
+from mqroute.callback_resolver import CallbackResolver
+from mqroute.topic_node import TopicMatch
+from mqroute.payload_formats import PayloadFormat
 
 
 def test_register_valid_topic_and_callback():
@@ -9,7 +12,7 @@ def test_register_valid_topic_and_callback():
 
     resolver = CallbackResolver()
     topic = "home/livingroom/temperature"
-    real_topic = resolver.register(topic, test_callback)
+    real_topic = resolver.register(topic, test_callback, payload_format=PayloadFormat.JSON)
 
     assert real_topic == topic
     node = resolver.nodes.nodes["home"].nodes["livingroom"].nodes["temperature"]
@@ -22,7 +25,7 @@ def test_register_with_wildcards():
 
     resolver = CallbackResolver()
     topic = "home/+/temperature"
-    real_topic = resolver.register(topic, test_callback)
+    real_topic = resolver.register(topic, test_callback, payload_format=PayloadFormat.JSON)
 
     assert real_topic == "home/+/temperature"
     node = resolver.nodes.nodes["home"].nodes["+"].nodes["temperature"]
@@ -34,7 +37,7 @@ def test_get_matching_nodes():
         pass
 
     resolver = CallbackResolver()
-    resolver.register("home/+/temperature", test_callback)
+    resolver.register("home/+/temperature", test_callback, payload_format=PayloadFormat.JSON)
 
     matches = resolver.get_matching_nodes("home/livingroom/temperature")
 
@@ -49,7 +52,7 @@ def test_get_matching_nodes_no_match():
         pass
 
     resolver = CallbackResolver()
-    resolver.register("home/kitchen/temperature", test_callback)
+    resolver.register("home/kitchen/temperature", test_callback, payload_format=PayloadFormat.JSON)
 
     matches = resolver.get_matching_nodes("home/livingroom/temperature")
 
@@ -61,7 +64,7 @@ def test_callbacks_generates_correct_requests():
         pass
 
     resolver = CallbackResolver()
-    resolver.register("home/+/temperature", test_callback)
+    resolver.register("home/+/temperature", test_callback, payload_format=PayloadFormat.JSON)
 
     requests = resolver.callbacks("home/livingroom/temperature")
 
@@ -77,7 +80,7 @@ def test_callbacks_no_match_returns_empty_list():
         pass
 
     resolver = CallbackResolver()
-    resolver.register("home/kitchen/temperature", test_callback)
+    resolver.register("home/kitchen/temperature", test_callback, payload_format=PayloadFormat.JSON)
 
     requests = resolver.callbacks("home/livingroom/temperature")
 
