@@ -1,3 +1,11 @@
+"""
+This module provides the `MQTTMessage` class, which is a representation of an MQTT
+(Message Queuing Telemetry Transport) message. It is designed to encapsulate the topic
+and the associated payload in a structured format. The payload can accommodate either
+plain text or structured data such as dictionaries, making it flexible for various use
+cases involving MQTT messaging.
+"""
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
@@ -9,7 +17,7 @@ __all__ = ["CallbackRequest"]
 
 
 @dataclass
-class CallbackRequest(object):
+class CallbackRequest:
     """
     This class is used to encapsulate data related to an MQTT callback request. It defines
     the callback method, additional parameters, and the topic to which the callback applies.

@@ -1,10 +1,25 @@
+"""
+This module provides functionality for working with MQTT messaging.
+
+It includes classes and functions for connecting to MQTT brokers, subscribing
+to topics, publishing messages, and handling incoming messages.
+
+Dependencies:
+- docutils
+- pip
+- pylint
+- pytest
+- requests
+- wheel
+"""
+
 from dataclasses import dataclass
 from typing import Union
 
 __all__ = ["MQTTMessage"]
 
 @dataclass
-class MQTTMessage(object):
+class MQTTMessage:
     """
     Represents a message communicated via MQTT.
 
