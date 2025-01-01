@@ -221,8 +221,7 @@ class MQTTClient:
                                                             callback=wrapper,
                                                             payload_format=payload_format,
                                                             fallback=fallback)
-            # pylint does not handle overloaded variants of this dispatchmethod
-            self.__mqtt_subscribe(rewritten_topic, qos=qos) # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
+            self.__mqtt_subscribe(rewritten_topic, qos)
 
             return wrapper
 
@@ -368,7 +367,11 @@ class MQTTClient:
 
 
     @singledispatchmethod
-    def __mqtt_subscribe(self, subscription: MQTTSubscription) -> MQTTSubscription:
+    def __mqtt_subscribe(self, *args, **kwargs):
+        raise NotImplementedError("Unsupported signature for __mqtt_subscribe method")
+
+    @__mqtt_subscribe.register
+    def _(self, subscription: MQTTSubscription) -> MQTTSubscription:
         """
         Subscribe to a topic by adding the given subscription to the list of current
         subscriptions and returns it. The method is a dispatch function for handling
