@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mqroute"
-version = "0.2.1"
+version = "0.2.2"
 authors = [
   { name="ehyde74" },
 ]
@@ -12,7 +12,7 @@ description = "MQRoute is a Python library designed to simplify working with MQT
 readme = {file = "README.md", content-type = "text/markdown"}
 keywords = ["mqtt", "asyncio", "decorators"]
 license = {text = "MIT License"}
-requires-python = ">=3.8"
+requires-python = ">=3.13"
 dependencies = [
   "paho-mqtt>=2.1.0",
   "typeguard>=4.4.1",

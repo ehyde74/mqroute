@@ -142,9 +142,15 @@ async def sigstop_handler():
     # termination requested
     print(f"Received request to terminate application.")
 
+    
+async def handle_green_light_status(topic, msg, params):
+    print(f"Green sensor status: {msg.message}")
 
 
 async def main():
+    # callback can also be added using functional interface.
+    mqtt.add_subscription(handle_green_light_status,
+                          topic="sensors/green/status")
     await mqtt.run()
 
     # Keep the client running
@@ -188,8 +194,8 @@ pytest tests/
 
 - **Message Publishing API:** Simple methods for publishing MQTT messages.
 - **Customization and extendability:** Allow easy means  to support for example custom payload formats
-- **Dynamic subscriptions:** Subscribe MQTT topics without decorators in order to allow dynamic
-   construction of mqroute application.
+- **Demo environment**: Demo environment with mqtt router and two mqroute clients talking. This would allow
+                        demo client to not depend on test.mosquitto.org
 ---
 
 ## **Contributing**

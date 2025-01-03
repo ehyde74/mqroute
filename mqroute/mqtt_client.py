@@ -25,7 +25,7 @@ from inspect import iscoroutinefunction
 from logging import getLogger
 from random import randint, uniform
 import signal
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Coroutine, Optional, Union
 
 from paho.mqtt import client as mqtt
 from typeguard import typechecked, check_type
@@ -40,6 +40,16 @@ from .qos import QOS
 __all__ = ["MQTTClient"]
 
 from .callback_resolver import CallbackResolver
+
+# To be decided if there is a need to actually publish these definitions. If so, it's just
+# a matter of adding these to  __all__
+type MessageHandlerCallbackType = Callable[[str, MQTTMessage, Optional[dict[str, str]]],
+                                           None]
+type AsyncMessageHandlerCallbackType = Callable[[str, MQTTMessage, Optional[dict[str, str]]],
+                                                Coroutine[Any, Any, None]]
+type GenericMessageCallbackType = Union[MessageHandlerCallbackType,
+                                        AsyncMessageHandlerCallbackType]
+
 
 logger = getLogger(__name__)
 
@@ -172,7 +182,62 @@ class MQTTClient:
 
     @callback_resolver.setter
     def callback_resolver(self, resolver: CallbackResolver):
+        """Setter for callback_resolver"""
         self.__msg_callbacks = resolver
+
+    # pylint: disable=too-many-arguments
+    # We want to use same parameters than we use with decorator interface + the callback
+    @typechecked
+    def add_subscription(self,
+                         callback: GenericMessageCallbackType,
+                         *,
+                         topic: str,
+                         qos: QOS = QOS.AT_MOST_ONCE,
+                         raw_payload: bool = False,
+                         fallback: bool = False):
+        """
+        Adds a subscription for a specific MQTT topic with the given callback.
+
+        This method allows the user to subscribe to an MQTT topic and associate it with
+        a callback function that processes messages received on that topic. The subscription
+        can specify options such as the quality of service (QoS) level, whether the payload
+        should be treated as raw bytes or JSON, and a fallback flag for additional functionality.
+
+        :param callback: The function or coroutine that processes messages received on the
+            specified topic.
+        :type callback: GenericMessageCallbackType
+        :param topic: The MQTT topic to which the subscription is made.
+        :type topic: str
+        :param qos: The quality of service (QoS) level for the subscription. Defaults to
+                    AT_MOST_ONCE.
+        :type qos: QOS
+        :param raw_payload: A flag indicating whether the payload should be treated as raw bytes
+            or JSON. Defaults to False (JSON format).
+        :type raw_payload: bool
+        :param fallback: An optional flag determining if fallback behavior is enabled during
+            message callback processing. Defaults to False.
+        :type fallback: bool
+        :return: None
+        """
+        payload_format = PayloadFormat.RAW if raw_payload else PayloadFormat.JSON
+        # In practice, this checks just that it's Callable. Maybe more one day...
+        check_type(callback,
+                   expected_type=GenericMessageCallbackType)
+        # # wrapper needs to be async too, otherwise it cannot be run with await....
+        # if iscoroutinefunction(callback):
+        #     async def wrapper(*args, **kwargs):
+        #         return await callback(*args, **kwargs)
+        # else:
+        #     def wrapper(*args, **kwargs):
+        #         return callback(*args, **kwargs)
+
+        rewritten_topic = self.__msg_callbacks.register(topic=topic,
+                                                        callback=callback,
+                                                        payload_format=payload_format,
+                                                        fallback=fallback)
+        self.__mqtt_subscribe(rewritten_topic, qos)
+
+    # pylint: enable=too-many-arguments
 
     @typechecked
     def subscribe(self,
@@ -208,7 +273,7 @@ class MQTTClient:
             payload_format = PayloadFormat.RAW if raw_payload else PayloadFormat.JSON
             # In practice, this checks just that it's Callable. Maybe more one day...
             check_type(func,
-                       expected_type=Callable[[str, MQTTMessage, Optional[dict[str, str]]], None])
+                       expected_type=GenericMessageCallbackType)
             # wrapper needs to be async too, otherwise it cannot be run with await....
             if iscoroutinefunction(func):
                 async def wrapper(*args, **kwargs):
