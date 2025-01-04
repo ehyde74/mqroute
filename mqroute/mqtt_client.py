@@ -31,15 +31,17 @@ from paho.mqtt import client as mqtt
 from typeguard import typechecked, check_type
 
 from .callback_runner import CallbackRunner
+from .message_publisher import MessagePublisher
 from .mqtt_client_userdata import MQTTClientUserData
 from .mqtt_message import MQTTMessage
 from .mqtt_subscription import MQTTSubscription
 from .payload_formats import PayloadFormat
 from .qos import QOS
+from .callback_resolver import CallbackResolver
+from .publish_message import PublishMessage
+
 
 __all__ = ["MQTTClient"]
-
-from .callback_resolver import CallbackResolver
 
 # To be decided if there is a need to actually publish these definitions. If so, it's just
 # a matter of adding these to  __all__
@@ -118,6 +120,7 @@ class MQTTClient:
         # this is unused, however, the task needs to be stored somewhere in order
         # to avoid it be garbage collected and thus killed prematurely.
         self.__cb_runner_task: Optional[asyncio.Task] = None # pylint: disable=unused-private-member
+        self.__msg_publisher_task: Optional[asyncio.Task] = None # pylint: disable=unused-private-member
 
         self.__running = False
 
@@ -129,17 +132,21 @@ class MQTTClient:
                     host,
                     port)
         self.__client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+        self.__msg_publisher = MessagePublisher(self.__client)
+
         userdata = MQTTClientUserData(self)
         self.__client.user_data_set(userdata)
 
-        self.__client.on_connect = self.on_connect
-        self.__client.on_message = self.on_message
-        self.__client.on_publish = self.on_publish
-        self.__client.on_subscribe = self.on_subscribe
-        self.__client.on_connect_fail = self.on_connect_fail
-        self.__client.on_disconnect = self.on_disconnect
+        self.__client.on_connect = self.__on_connect
+        self.__client.on_message = self.__on_message
+        self.__client.on_publish = self.__on_publish
+        self.__client.on_subscribe = self.__on_subscribe
+        self.__client.on_connect_fail = self.__on_connect_fail
+        self.__client.on_disconnect = self.__on_disconnect
+
         if paho_logs:
             self.__client.on_log = self.on_log
+
         self.__client.on_unsubscribe = self.on_unsubscribe
 
         self.sigstop_handlers = []
@@ -223,19 +230,40 @@ class MQTTClient:
         # In practice, this checks just that it's Callable. Maybe more one day...
         check_type(callback,
                    expected_type=GenericMessageCallbackType)
-        # # wrapper needs to be async too, otherwise it cannot be run with await....
-        # if iscoroutinefunction(callback):
-        #     async def wrapper(*args, **kwargs):
-        #         return await callback(*args, **kwargs)
-        # else:
-        #     def wrapper(*args, **kwargs):
-        #         return callback(*args, **kwargs)
 
         rewritten_topic = self.__msg_callbacks.register(topic=topic,
                                                         callback=callback,
                                                         payload_format=payload_format,
                                                         fallback=fallback)
         self.__mqtt_subscribe(rewritten_topic, qos)
+
+    async def publish(self,
+                      topic : str,
+                      payload: Union[str, dict],
+                      qos: QOS = QOS.AT_MOST_ONCE,
+                      *,
+                      retain: bool = False, ):
+        """
+        Publishes a message to a given topic with specified payload, Quality of
+        Service (QoS), and retain flag. This method ensures that the desired payload
+        is sent asynchronously, utilizing the provided topic details. The QoS level
+        determines how the delivery of this message behaves in terms of reliability.
+
+        :param topic: A string representing the topic to publish the message to.
+        :param payload: The content of the message to send, which can be either a
+            string or a dictionary.
+        :param qos: Specifies the quality of service level for message delivery.
+            The default is QOS.AT_MOST_ONCE.
+        :param retain: An optional boolean flag. If set to True, the message should
+            be retained; the default is False.
+        :return: None
+        """
+        message = PublishMessage(topic=topic,
+                                 payload=payload,
+                                 qos=qos,
+                                 retain=retain)
+        logger.debug("Publishing: %s", message)
+        self.__msg_publisher.publish(message)
 
     # pylint: enable=too-many-arguments
 
@@ -373,6 +401,7 @@ class MQTTClient:
         :return: None
         """
         self.__running = True
+
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None,
                                    self.__client.connect,
@@ -380,9 +409,16 @@ class MQTTClient:
                                    self.__port)
 
         self.__cb_runner.loop = loop
-        # this is unused, however, the task needs to be stored somewhere in order
-        # to avoid it be garbage collected and thus killed prematurely.
-        self.__cb_runner_task = asyncio.create_task(self.__cb_runner.process_callbacks()) # pylint: disable=unused-private-member
+        self.__msg_publisher.loop = loop
+
+        # self.__msg_publisher and  self.__cb_runner_task are unused , however, the task needs to be
+        # stored somewhere in order to avoid it be garbage collected and thus killed prematurely.
+        self.__msg_publisher_task = asyncio.create_task(   # pylint: disable=unused-private-member
+            self.__msg_publisher.execute())
+
+        self.__cb_runner_task = asyncio.create_task(       # pylint: disable=unused-private-member
+            self.__cb_runner.process_callbacks())
+
         self.__client.loop_start()
 
     def stop(self):
@@ -473,11 +509,11 @@ class MQTTClient:
     # to these having too many arguments.
 
     @staticmethod
-    def on_connect(client: mqtt.Client,
-                   userdata: MQTTClientUserData,
-                   _: dict[str, Any],  # connect_flags
-                   reason_code: mqtt.ReasonCodes,
-                   __: mqtt.Properties):              # properties
+    def __on_connect(client: mqtt.Client,
+                     userdata: MQTTClientUserData,
+                     _: dict[str, Any],  # connect_flags
+                     reason_code: mqtt.ReasonCodes,
+                     __: mqtt.Properties):              # properties
         """
         Handles the connection of the MQTT client to the server. This method is invoked
         when the client establishes a connection to the broker. It logs the connection
@@ -505,10 +541,10 @@ class MQTTClient:
 
 
 
-    def on_message(self,
-                   _: mqtt.Client,                # client
-                   userdata: MQTTClientUserData,
-                   message: mqtt.MQTTMessage):
+    def __on_message(self,
+                     _: mqtt.Client,  # client
+                     userdata: MQTTClientUserData,
+                     message: mqtt.MQTTMessage):
         """
         Handles incoming MQTT messages by processing them and executing corresponding callbacks
         registered to the topic.
@@ -539,12 +575,12 @@ class MQTTClient:
 
 
 
-    def on_publish(self,
-                   client: mqtt.Client,
-                   userdata: MQTTClientUserData,
-                   mid: int,
-                   reason_code: mqtt.ReasonCodes,
-                   properties: mqtt.Properties):
+    def __on_publish(self,
+                     client: mqtt.Client,
+                     userdata: MQTTClientUserData,
+                     mid: int,
+                     reason_code: mqtt.ReasonCodes,
+                     properties: mqtt.Properties):
         """
         Handles the event triggered when a message is successfully published.
 
@@ -562,11 +598,11 @@ class MQTTClient:
 
 
     @staticmethod
-    def on_subscribe(_: mqtt.Client,  # client
-                     userdata: MQTTClientUserData,  # userdata
-                     __: int,  # mid
-                     reason_code_list: list[mqtt.ReasonCodes],
-                     ___: mqtt.Properties):                          # properties
+    def __on_subscribe(_: mqtt.Client,  # client
+                       userdata: MQTTClientUserData,  # userdata
+                       __: int,  # mid
+                       reason_code_list: list[mqtt.ReasonCodes],
+                       ___: mqtt.Properties):                          # properties
         """
         Handle the MQTT client subscription event.
 
@@ -590,12 +626,12 @@ class MQTTClient:
         for sub, reason in zip(userdata.client.subscriptions, reason_code_list):
             logger.debug("   %s: '%s'", sub.topic, reason)
 
-    def on_connect_fail(self,
-                        client: mqtt.Client,
-                        userdata: MQTTClientUserData,
-                        mid: int,
-                        reason_code_list: list[mqtt.ReasonCodes],
-                        properties: mqtt.Properties):
+    def __on_connect_fail(self,
+                          client: mqtt.Client,
+                          userdata: MQTTClientUserData,
+                          mid: int,
+                          reason_code_list: list[mqtt.ReasonCodes],
+                          properties: mqtt.Properties):
         """
         Callback triggered when the client fails to connect to the MQTT broker.
 
@@ -615,11 +651,11 @@ class MQTTClient:
         """
 
     @staticmethod
-    def on_disconnect(_: mqtt.Client,
-                      userdata: MQTTClientUserData,
-                      __: mqtt.DisconnectFlags,
-                      reason_code: mqtt.ReasonCodes,
-                      ___: mqtt.Properties):
+    def __on_disconnect(_: mqtt.Client,
+                        userdata: MQTTClientUserData,
+                        __: mqtt.DisconnectFlags,
+                        reason_code: mqtt.ReasonCodes,
+                        ___: mqtt.Properties):
         """
         Handles client disconnection event from the MQTT broker. Clears the
         current subscriptions, logs the disconnection reason, and attempts

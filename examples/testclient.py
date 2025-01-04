@@ -69,6 +69,20 @@ async def handle_weather4(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any
     logger.info("message:  (handle_weather4)")
     logger.info("         4 topic:%s", topic)
     logger.info("         4 %s: %s", payload_type, msg.message)
+    await mqtt.publish("mqroute/response", {"mqroute": "response"}, qos=mqroute.QOS.EXACTLY_ONCE)
+    logger.info("              *********** RESPONSE MESSAGE SENT")
+
+
+@mqtt.subscribe(topic="mqroute/response", qos=mqroute.QOS.EXACTLY_ONCE)
+async def handle_mqroute_response(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
+    """ Simple example method processing received MQTT messages that have matching topic
+     and are not processed by any other callback."""
+    payload_type = type(msg.message).__name__
+    logger.info("message:  (mqroute_response)")
+    logger.info("         R topic:%s", topic)
+    logger.info("         R: %s %s", payload_type, msg.message)
+
+
 
 
 async def main():
