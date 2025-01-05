@@ -295,7 +295,7 @@ class MQTTClient:
         :return: None
         :rtype: None
         """
-        self.publish_message(topic=topic, payload=payload, qos=qos, retain=retain)
+        self.publish_message(topic, payload=payload, qos=qos, retain=retain)
 
     @singledispatchmethod
     def publish_message(self, *args, **kwargs):
