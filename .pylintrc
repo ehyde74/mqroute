@@ -1,0 +1,70 @@
+[MASTER]
+# Allow loading of arbitrary plugins. Useful when working with pylint-django, etc.
+#load-plugins=pylint.extensions.mccabe
+
+# Add project-specific directories to the Python path
+init-hook='import sys; sys.path.append(".")'  # Adjust 'src' to the root directory of your project
+
+# Files or directories to be skipped
+ignore=tests, migrations  # Add directories to ignore, like migrations or test files
+
+# Files or directories matching the regex pattern are skipped.
+ignore-patterns=test_.*
+
+[MESSAGES CONTROL]
+# Enable or disable specific error messages, warnings, or reports (by message code or symbolic name)
+#disable=
+#    missing-docstring,        # Disable missing docstring warning
+#    import-error,             # Disable import errors (only if you're confident of installation & paths)
+#    bare-except,              # Disable warnings for bare except clauses
+#    invalid-name,             # Disable warnings about variable names not matching conventions
+#    fixme                     # Disable warnings for TODO, FIXME comments
+
+[REPORTS]
+# Disable the overall report summary
+#reports=no
+
+[FORMAT]
+# Maximum number of characters on a single line.
+max-line-length=100
+
+# String formats are percent, new, or f-string. Use new for `.format()` or f-string for modern strings.
+#string-quote=f-string
+
+[TYPECHECK]
+# Ignore imports from these modules for type checking and assumptions
+#ignored-modules=mqroute, requests, pytest, docutils, wheel
+
+# List of files or modules containing non-standard type hints
+#ignored-classes=Any
+
+[DESIGN]
+# Maximum number of arguments for a function/method
+#max-args=5
+
+# Maximum number of attributes for a class
+#max-attributes=7
+
+[LOGGING]
+# Format string used in logging calls (e.g., '%s')
+#logging-format-style=old
+
+[IMPORTS]
+# Allow relative imports. Set to `no` to enforce absolute imports.
+allow-relative-imports=yes
+
+[MISCELLANEOUS]
+# Allow the use of variable \_\_all\_\_
+accept-no-members=yes
+
+[SIMILARITIES]
+# Minimum lines required for detecting similarities in code
+min-similarity-lines=4
+
+[EXCEPTIONS]
+# List of exception classes that should not trigger "W0703: Catching too general exception" warning
+overgeneral-exceptions=Exception
+
+[REFACTORING]
+# Maximum number of function arguments before a warning
+max-args=6

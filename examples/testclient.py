@@ -55,6 +55,8 @@ def handle_weather3(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
     logger.info("message:  (handle_weather3)")
     logger.info("         3 topic:%s", topic)
     logger.info("         3 %s: %s", payload_type, msg.message)
+    publish_another_response("Hello")
+    logger.info("Hello sent")
 
 @mqtt.sigstop
 def sigstop_handler():
@@ -62,15 +64,28 @@ def sigstop_handler():
     logger.info("sigstop_handler called !!!!")
 
 
+RESPONSE_COUNTER = 0        # pylint: disable global-statement
+
 async def handle_weather4(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
     """ Simple example method processing received MQTT messages that have matching topic
      and are not processed by any other callback."""
+    global RESPONSE_COUNTER                 # pylint: disable=global-statement
+                                            # for the sake of simplicity in this example...
     payload_type = type(msg.message).__name__
     logger.info("message:  (handle_weather4)")
     logger.info("         4 topic:%s", topic)
     logger.info("         4 %s: %s", payload_type, msg.message)
-    await mqtt.publish("mqroute/response", {"mqroute": "response"}, qos=mqroute.QOS.EXACTLY_ONCE)
-    logger.info("              *********** RESPONSE MESSAGE SENT")
+    mqtt.publish_message("mqroute/response",
+                         {"mqroute": "response",
+                          "serial": RESPONSE_COUNTER},
+                          qos=mqroute.QOS.EXACTLY_ONCE)
+    RESPONSE_COUNTER += 1
+    await mqtt.async_publish_message("mqroute/response",
+                                     {"mqroute": "response2",
+                                      "serial": RESPONSE_COUNTER},
+                                     qos=mqroute.QOS.EXACTLY_ONCE)
+    RESPONSE_COUNTER += 1
+    logger.info("              4 **RESPONSE MESSAGES SENT")
 
 
 @mqtt.subscribe(topic="mqroute/response", qos=mqroute.QOS.EXACTLY_ONCE)
@@ -79,10 +94,33 @@ async def handle_mqroute_response(topic: str, msg: mqroute.MQTTMessage, _: dict[
      and are not processed by any other callback."""
     payload_type = type(msg.message).__name__
     logger.info("message:  (mqroute_response)")
-    logger.info("         R topic:%s", topic)
-    logger.info("         R: %s %s", payload_type, msg.message)
+    logger.info("         R1 topic:%s", topic)
+    logger.info("         R1: %s %s", payload_type, msg.message)
 
 
+@mqtt.publish(topic="mqroute/another_response")
+def publish_another_response(msg: str):
+    """
+    Publishes a response message to a specific MQTT topic.
+
+    This function is designed to package the provided message into a specific format
+    and send it to the "mqroute/another_response" topic via the MQTT protocol.
+
+    :param msg: The message to be sent.
+    :type msg: str
+    :return: A dictionary containing the formatted message text.
+    :rtype: dict
+    """
+    return {"text": msg}
+
+@mqtt.subscribe(topic="mqroute/another_response", qos=mqroute.QOS.EXACTLY_ONCE)
+async def handle_mqroute_another_response(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
+    """ Simple example method processing received MQTT messages that have matching topic
+     and are not processed by any other callback."""
+    payload_type = type(msg.message).__name__
+    logger.info("message:  (mqroute_response2)")
+    logger.info("         R2 topic:%s", topic)
+    logger.info("         R2: %s %s", payload_type, msg.message)
 
 
 async def main():

@@ -20,6 +20,7 @@ Make sure to configure the MQTT broker settings appropriately before using the m
 import asyncio
 import socket
 import time
+from asyncio import iscoroutine
 from functools import singledispatchmethod
 from logging import getLogger
 from random import randint, uniform
@@ -236,33 +237,181 @@ class MQTTClient:
                                                         fallback=fallback)
         self.__mqtt_subscribe(rewritten_topic, qos)
 
-    async def publish(self,
-                      topic : str,
-                      payload: Union[str, dict],
-                      qos: QOS = QOS.AT_MOST_ONCE,
-                      *,
-                      retain: bool = False, ):
-        """
-        Publishes a message to a given topic with specified payload, Quality of
-        Service (QoS), and retain flag. This method ensures that the desired payload
-        is sent asynchronously, utilizing the provided topic details. The QoS level
-        determines how the delivery of this message behaves in terms of reliability.
 
-        :param topic: A string representing the topic to publish the message to.
-        :param payload: The content of the message to send, which can be either a
-            string or a dictionary.
-        :param qos: Specifies the quality of service level for message delivery.
-            The default is QOS.AT_MOST_ONCE.
-        :param retain: An optional boolean flag. If set to True, the message should
-            be retained; the default is False.
+    @singledispatchmethod
+    async def async_publish_message(self, *args, **kwargs):
+        """
+        Dispatch method for publishing a message asynchronously.
+
+        This method serves as a generic single-dispatch method for unknown signatures.
+        :raises NotImplementedError: If the method is called with an unsupported signature.
+        """
+        raise NotImplementedError("Unsupported signature for async_publish_message")
+
+    @async_publish_message.register
+    def _(self, publishable: PublishMessage):
+        """
+        Asynchronously publishes a message using the provided publishable data.
+
+        This function is a part of a multiple-dispatch mechanism that handles
+        publishing operations. It specifically handles a scenario where the
+        `PublishMessage` type is passed as the argument. The function delegates
+        the actual task of publishing to the `self.async_publish_message` method,
+        ensuring the process is executed asynchronously.
+
+        Necessary conditions for this operation are typically defined externally,
+        and the method assumes that the `publishable` argument adheres to the required
+        structure for successful execution.
+
+        :param publishable: The message to be published, encapsulated in a
+            `PublishMessage` type structure.
+        :return: None
+        """
+        self.async_publish_message(publishable=publishable)
+
+    @async_publish_message.register
+    async def _(self,
+                topic : str,
+                payload: Union[str, dict],
+                qos: QOS = QOS.AT_MOST_ONCE,
+                *,
+                retain: bool = False, ):
+        """
+        Publishes a message asynchronously to a specified topic using the given parameters.
+        This function allows sending structured payloads with different QoS levels and
+        optional message retention. It provides flexibility for real-time communication
+        between distributed systems using MQTT.
+
+        :param topic: The target MQTT topic where the message should be published.
+        :type topic: str
+        :param payload: The message content or data to be sent. Can be a string or dictionary.
+        :type payload: Union[str, dict]
+        :param qos: The Quality of Service (QoS) level for message delivery. Defaults to
+            QOS.AT_MOST_ONCE.
+        :type qos: QOS
+        :param retain: A flag indicating whether the message should be retained on the broker.
+            Defaults to `False`.
+        :type retain: bool
+        :return: None
+        :rtype: None
+        """
+        self.publish_message(topic=topic, payload=payload, qos=qos, retain=retain)
+
+    @singledispatchmethod
+    def publish_message(self, *args, **kwargs):
+        """
+        Dispatch method for publishing a message.
+
+        This method serves as a generic single-dispatch method for unknown signatures.
+        :raises NotImplementedError: If the method is called with an unsupported signature.
+        """
+        raise NotImplementedError("Unsupported signature for publish_message method")
+
+    @publish_message.register
+    def _(self, publishable: PublishMessage):
+        """
+        Publishes a given message through the message publisher system. The function
+        is part of a message dispatching mechanism and is designed to handle objects
+        of type `PublishMessage`. It logs a debug message indicating the content
+        being published before invoking the underlying publishing mechanism.
+
+        :param publishable: The message object of type `PublishMessage` to be published.
+        :return: None
+        """
+        logger.debug("Publishing: %s", publishable)
+        self.__msg_publisher.publish(publishable)
+
+    @publish_message.register
+    def _(self,
+          topic : str,
+          payload: Union[str, dict],
+          qos: QOS = QOS.AT_MOST_ONCE,
+          *,
+          retain: bool = False, ):
+        """
+        Publishes a message to a specified topic with optional quality of service (QoS) and
+        retain flag.
+
+        This method allows sending a publish message to a specific MQTT topic
+        with an optional payload, QoS level, and retain flag. The payload can
+        be a string or dictionary. The QoS level determines the message delivery
+        guarantee, and the retain flag specifies if the message should be retained
+        on the broker.
+
+        :param topic: The MQTT topic to which the message should be published.
+        :type topic: str
+        :param payload: The content of the message to send. Payload can be a string or dictionary.
+        :type payload: Union[str, dict]
+        :param qos: Quality of Service level defining message delivery guarantees.
+        :type qos: QOS
+        :param retain: Boolean flag specifying whether the message should be retained on the broker.
+                       Defaults to False.
+        :type retain: bool
         :return: None
         """
         message = PublishMessage(topic=topic,
                                  payload=payload,
                                  qos=qos,
                                  retain=retain)
-        logger.debug("Publishing: %s", message)
-        self.__msg_publisher.publish(message)
+        self.publish_message(message)
+
+    def publish(self,
+                topic : str,
+                qos: QOS = QOS.AT_MOST_ONCE,
+                *,
+                retain: bool = False ):
+        """
+        This method is a decorator designed to allow seamless message
+        publishing for synchronous or asynchronous functions. It decorates
+        a function to automatically convert its return value into a format
+        suitable for publishing and sends it as a `PublishMessage`
+        via the `self.publish_message()` method. The decorator supports
+        customizable parameters for the topic, quality of service (QoS),
+        and retention policy of the message.
+
+        The decorated function's result is automatically transformed into
+        a publishable message and transmitted. It is compatible with both
+        coroutine (async) functions and standard Python functions.
+
+        :param topic: The topic string under which the message will be published.
+                      This topic organizes how messages are communicated.
+        :param qos: The quality of service level to use for the message.
+                    Defaults to `QOS.AT_MOST_ONCE`. This determines how
+                    delivery of the message is handled.
+        :param retain: A boolean flag determining if the message should be
+                       retained by the server. Retained messages can act as
+                       "last known good states" for subscribers. Optional
+                       and defaults to `False`.
+        :return: The wrapping function that ensures the decorated function's
+                 result is converted into a publishable message and sent via
+                 `self.publish_message()`.
+        """
+        def decorator(func):
+            if iscoroutine(func):
+                async def wrapper(*args, **kwargs):
+                    message = await func(*args, **kwargs)
+                    publishable = PublishMessage(topic=topic,
+                                                 payload=message,
+                                                 qos=qos,
+                                                 retain=retain
+                                                 )
+                    if publishable is not None:
+                        self.publish_message(publishable)
+            else:
+                def wrapper(*args, **kwargs):
+                    message = func(*args, **kwargs)
+                    publishable = PublishMessage(topic=topic,
+                                                 payload=message,
+                                                 qos=qos,
+                                                 retain=retain
+                                                 )
+                    if publishable is not None:
+                        self.publish_message(publishable)
+
+            return wrapper
+
+        return decorator
+
 
     # pylint: enable=too-many-arguments
 
