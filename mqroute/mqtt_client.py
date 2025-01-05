@@ -21,7 +21,6 @@ import asyncio
 import socket
 import time
 from functools import singledispatchmethod
-from inspect import iscoroutinefunction
 from logging import getLogger
 from random import randint, uniform
 import signal
@@ -300,23 +299,15 @@ class MQTTClient:
         def decorator(func):
             payload_format = PayloadFormat.RAW if raw_payload else PayloadFormat.JSON
             # In practice, this checks just that it's Callable. Maybe more one day...
-            check_type(func,
-                       expected_type=GenericMessageCallbackType)
-            # wrapper needs to be async too, otherwise it cannot be run with await....
-            if iscoroutinefunction(func):
-                async def wrapper(*args, **kwargs):
-                    return await func(*args, **kwargs)
-            else:
-                def wrapper(*args, **kwargs):
-                    return func(*args, **kwargs)
+            check_type(func, expected_type=GenericMessageCallbackType)
 
             rewritten_topic = self.__msg_callbacks.register(topic=topic,
-                                                            callback=wrapper,
+                                                            callback=func,
                                                             payload_format=payload_format,
                                                             fallback=fallback)
             self.__mqtt_subscribe(rewritten_topic, qos)
 
-            return wrapper
+            return func
 
         return decorator
 
