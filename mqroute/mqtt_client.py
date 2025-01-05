@@ -20,8 +20,8 @@ Make sure to configure the MQTT broker settings appropriately before using the m
 import asyncio
 import socket
 import time
+from asyncio import iscoroutine
 from functools import singledispatchmethod
-from inspect import iscoroutinefunction
 from logging import getLogger
 from random import randint, uniform
 import signal
@@ -31,15 +31,17 @@ from paho.mqtt import client as mqtt
 from typeguard import typechecked, check_type
 
 from .callback_runner import CallbackRunner
+from .message_publisher import MessagePublisher
 from .mqtt_client_userdata import MQTTClientUserData
 from .mqtt_message import MQTTMessage
 from .mqtt_subscription import MQTTSubscription
 from .payload_formats import PayloadFormat
 from .qos import QOS
+from .callback_resolver import CallbackResolver
+from .publish_message import PublishMessage
+
 
 __all__ = ["MQTTClient"]
-
-from .callback_resolver import CallbackResolver
 
 # To be decided if there is a need to actually publish these definitions. If so, it's just
 # a matter of adding these to  __all__
@@ -118,6 +120,7 @@ class MQTTClient:
         # this is unused, however, the task needs to be stored somewhere in order
         # to avoid it be garbage collected and thus killed prematurely.
         self.__cb_runner_task: Optional[asyncio.Task] = None # pylint: disable=unused-private-member
+        self.__msg_publisher_task: Optional[asyncio.Task] = None # pylint: disable=unused-private-member
 
         self.__running = False
 
@@ -129,17 +132,21 @@ class MQTTClient:
                     host,
                     port)
         self.__client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+        self.__msg_publisher = MessagePublisher(self.__client)
+
         userdata = MQTTClientUserData(self)
         self.__client.user_data_set(userdata)
 
-        self.__client.on_connect = self.on_connect
-        self.__client.on_message = self.on_message
-        self.__client.on_publish = self.on_publish
-        self.__client.on_subscribe = self.on_subscribe
-        self.__client.on_connect_fail = self.on_connect_fail
-        self.__client.on_disconnect = self.on_disconnect
+        self.__client.on_connect = self.__on_connect
+        self.__client.on_message = self.__on_message
+        self.__client.on_publish = self.__on_publish
+        self.__client.on_subscribe = self.__on_subscribe
+        self.__client.on_connect_fail = self.__on_connect_fail
+        self.__client.on_disconnect = self.__on_disconnect
+
         if paho_logs:
             self.__client.on_log = self.on_log
+
         self.__client.on_unsubscribe = self.on_unsubscribe
 
         self.sigstop_handlers = []
@@ -223,19 +230,188 @@ class MQTTClient:
         # In practice, this checks just that it's Callable. Maybe more one day...
         check_type(callback,
                    expected_type=GenericMessageCallbackType)
-        # # wrapper needs to be async too, otherwise it cannot be run with await....
-        # if iscoroutinefunction(callback):
-        #     async def wrapper(*args, **kwargs):
-        #         return await callback(*args, **kwargs)
-        # else:
-        #     def wrapper(*args, **kwargs):
-        #         return callback(*args, **kwargs)
 
         rewritten_topic = self.__msg_callbacks.register(topic=topic,
                                                         callback=callback,
                                                         payload_format=payload_format,
                                                         fallback=fallback)
         self.__mqtt_subscribe(rewritten_topic, qos)
+
+
+    @singledispatchmethod
+    async def async_publish_message(self, *args, **kwargs):
+        """
+        Dispatch method for publishing a message asynchronously.
+
+        This method serves as a generic single-dispatch method for unknown signatures.
+        :raises NotImplementedError: If the method is called with an unsupported signature.
+        """
+        raise NotImplementedError("Unsupported signature for async_publish_message")
+
+    @async_publish_message.register
+    def _(self, publishable: PublishMessage):
+        """
+        Asynchronously publishes a message using the provided publishable data.
+
+        This function is a part of a multiple-dispatch mechanism that handles
+        publishing operations. It specifically handles a scenario where the
+        `PublishMessage` type is passed as the argument. The function delegates
+        the actual task of publishing to the `self.async_publish_message` method,
+        ensuring the process is executed asynchronously.
+
+        Necessary conditions for this operation are typically defined externally,
+        and the method assumes that the `publishable` argument adheres to the required
+        structure for successful execution.
+
+        :param publishable: The message to be published, encapsulated in a
+            `PublishMessage` type structure.
+        :return: None
+        """
+        self.async_publish_message(publishable=publishable)
+
+    @async_publish_message.register
+    async def _(self,
+                topic : str,
+                payload: Union[str, dict],
+                qos: QOS = QOS.AT_MOST_ONCE,
+                *,
+                retain: bool = False, ):
+        """
+        Publishes a message asynchronously to a specified topic using the given parameters.
+        This function allows sending structured payloads with different QoS levels and
+        optional message retention. It provides flexibility for real-time communication
+        between distributed systems using MQTT.
+
+        :param topic: The target MQTT topic where the message should be published.
+        :type topic: str
+        :param payload: The message content or data to be sent. Can be a string or dictionary.
+        :type payload: Union[str, dict]
+        :param qos: The Quality of Service (QoS) level for message delivery. Defaults to
+            QOS.AT_MOST_ONCE.
+        :type qos: QOS
+        :param retain: A flag indicating whether the message should be retained on the broker.
+            Defaults to `False`.
+        :type retain: bool
+        :return: None
+        :rtype: None
+        """
+        self.publish_message(topic, payload=payload, qos=qos, retain=retain)
+
+    @singledispatchmethod
+    def publish_message(self, *args, **kwargs):
+        """
+        Dispatch method for publishing a message.
+
+        This method serves as a generic single-dispatch method for unknown signatures.
+        :raises NotImplementedError: If the method is called with an unsupported signature.
+        """
+        raise NotImplementedError("Unsupported signature for publish_message method")
+
+    @publish_message.register
+    def _(self, publishable: PublishMessage):
+        """
+        Publishes a given message through the message publisher system. The function
+        is part of a message dispatching mechanism and is designed to handle objects
+        of type `PublishMessage`. It logs a debug message indicating the content
+        being published before invoking the underlying publishing mechanism.
+
+        :param publishable: The message object of type `PublishMessage` to be published.
+        :return: None
+        """
+        logger.debug("Publishing: %s", publishable)
+        self.__msg_publisher.publish(publishable)
+
+    @publish_message.register
+    def _(self,
+          topic : str,
+          payload: Union[str, dict],
+          qos: QOS = QOS.AT_MOST_ONCE,
+          *,
+          retain: bool = False, ):
+        """
+        Publishes a message to a specified topic with optional quality of service (QoS) and
+        retain flag.
+
+        This method allows sending a publish message to a specific MQTT topic
+        with an optional payload, QoS level, and retain flag. The payload can
+        be a string or dictionary. The QoS level determines the message delivery
+        guarantee, and the retain flag specifies if the message should be retained
+        on the broker.
+
+        :param topic: The MQTT topic to which the message should be published.
+        :type topic: str
+        :param payload: The content of the message to send. Payload can be a string or dictionary.
+        :type payload: Union[str, dict]
+        :param qos: Quality of Service level defining message delivery guarantees.
+        :type qos: QOS
+        :param retain: Boolean flag specifying whether the message should be retained on the broker.
+                       Defaults to False.
+        :type retain: bool
+        :return: None
+        """
+        message = PublishMessage(topic=topic,
+                                 payload=payload,
+                                 qos=qos,
+                                 retain=retain)
+        self.publish_message(message)
+
+    def publish(self,
+                topic : str,
+                qos: QOS = QOS.AT_MOST_ONCE,
+                *,
+                retain: bool = False ):
+        """
+        This method is a decorator designed to allow seamless message
+        publishing for synchronous or asynchronous functions. It decorates
+        a function to automatically convert its return value into a format
+        suitable for publishing and sends it as a `PublishMessage`
+        via the `self.publish_message()` method. The decorator supports
+        customizable parameters for the topic, quality of service (QoS),
+        and retention policy of the message.
+
+        The decorated function's result is automatically transformed into
+        a publishable message and transmitted. It is compatible with both
+        coroutine (async) functions and standard Python functions.
+
+        :param topic: The topic string under which the message will be published.
+                      This topic organizes how messages are communicated.
+        :param qos: The quality of service level to use for the message.
+                    Defaults to `QOS.AT_MOST_ONCE`. This determines how
+                    delivery of the message is handled.
+        :param retain: A boolean flag determining if the message should be
+                       retained by the server. Retained messages can act as
+                       "last known good states" for subscribers. Optional
+                       and defaults to `False`.
+        :return: The wrapping function that ensures the decorated function's
+                 result is converted into a publishable message and sent via
+                 `self.publish_message()`.
+        """
+        def decorator(func):
+            if iscoroutine(func):
+                async def wrapper(*args, **kwargs):
+                    message = await func(*args, **kwargs)
+                    publishable = PublishMessage(topic=topic,
+                                                 payload=message,
+                                                 qos=qos,
+                                                 retain=retain
+                                                 )
+                    if publishable is not None:
+                        self.publish_message(publishable)
+            else:
+                def wrapper(*args, **kwargs):
+                    message = func(*args, **kwargs)
+                    publishable = PublishMessage(topic=topic,
+                                                 payload=message,
+                                                 qos=qos,
+                                                 retain=retain
+                                                 )
+                    if publishable is not None:
+                        self.publish_message(publishable)
+
+            return wrapper
+
+        return decorator
+
 
     # pylint: enable=too-many-arguments
 
@@ -272,23 +448,15 @@ class MQTTClient:
         def decorator(func):
             payload_format = PayloadFormat.RAW if raw_payload else PayloadFormat.JSON
             # In practice, this checks just that it's Callable. Maybe more one day...
-            check_type(func,
-                       expected_type=GenericMessageCallbackType)
-            # wrapper needs to be async too, otherwise it cannot be run with await....
-            if iscoroutinefunction(func):
-                async def wrapper(*args, **kwargs):
-                    return await func(*args, **kwargs)
-            else:
-                def wrapper(*args, **kwargs):
-                    return func(*args, **kwargs)
+            check_type(func, expected_type=GenericMessageCallbackType)
 
             rewritten_topic = self.__msg_callbacks.register(topic=topic,
-                                                            callback=wrapper,
+                                                            callback=func,
                                                             payload_format=payload_format,
                                                             fallback=fallback)
             self.__mqtt_subscribe(rewritten_topic, qos)
 
-            return wrapper
+            return func
 
         return decorator
 
@@ -373,6 +541,7 @@ class MQTTClient:
         :return: None
         """
         self.__running = True
+
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None,
                                    self.__client.connect,
@@ -380,9 +549,16 @@ class MQTTClient:
                                    self.__port)
 
         self.__cb_runner.loop = loop
-        # this is unused, however, the task needs to be stored somewhere in order
-        # to avoid it be garbage collected and thus killed prematurely.
-        self.__cb_runner_task = asyncio.create_task(self.__cb_runner.process_callbacks()) # pylint: disable=unused-private-member
+        self.__msg_publisher.loop = loop
+
+        # self.__msg_publisher and  self.__cb_runner_task are unused , however, the task needs to be
+        # stored somewhere in order to avoid it be garbage collected and thus killed prematurely.
+        self.__msg_publisher_task = asyncio.create_task(   # pylint: disable=unused-private-member
+            self.__msg_publisher.execute())
+
+        self.__cb_runner_task = asyncio.create_task(       # pylint: disable=unused-private-member
+            self.__cb_runner.process_callbacks())
+
         self.__client.loop_start()
 
     def stop(self):
@@ -473,11 +649,11 @@ class MQTTClient:
     # to these having too many arguments.
 
     @staticmethod
-    def on_connect(client: mqtt.Client,
-                   userdata: MQTTClientUserData,
-                   _: dict[str, Any],  # connect_flags
-                   reason_code: mqtt.ReasonCodes,
-                   __: mqtt.Properties):              # properties
+    def __on_connect(client: mqtt.Client,
+                     userdata: MQTTClientUserData,
+                     _: dict[str, Any],  # connect_flags
+                     reason_code: mqtt.ReasonCodes,
+                     __: mqtt.Properties):              # properties
         """
         Handles the connection of the MQTT client to the server. This method is invoked
         when the client establishes a connection to the broker. It logs the connection
@@ -505,10 +681,10 @@ class MQTTClient:
 
 
 
-    def on_message(self,
-                   _: mqtt.Client,                # client
-                   userdata: MQTTClientUserData,
-                   message: mqtt.MQTTMessage):
+    def __on_message(self,
+                     _: mqtt.Client,  # client
+                     userdata: MQTTClientUserData,
+                     message: mqtt.MQTTMessage):
         """
         Handles incoming MQTT messages by processing them and executing corresponding callbacks
         registered to the topic.
@@ -539,12 +715,12 @@ class MQTTClient:
 
 
 
-    def on_publish(self,
-                   client: mqtt.Client,
-                   userdata: MQTTClientUserData,
-                   mid: int,
-                   reason_code: mqtt.ReasonCodes,
-                   properties: mqtt.Properties):
+    def __on_publish(self,
+                     client: mqtt.Client,
+                     userdata: MQTTClientUserData,
+                     mid: int,
+                     reason_code: mqtt.ReasonCodes,
+                     properties: mqtt.Properties):
         """
         Handles the event triggered when a message is successfully published.
 
@@ -562,11 +738,11 @@ class MQTTClient:
 
 
     @staticmethod
-    def on_subscribe(_: mqtt.Client,  # client
-                     userdata: MQTTClientUserData,  # userdata
-                     __: int,  # mid
-                     reason_code_list: list[mqtt.ReasonCodes],
-                     ___: mqtt.Properties):                          # properties
+    def __on_subscribe(_: mqtt.Client,  # client
+                       userdata: MQTTClientUserData,  # userdata
+                       __: int,  # mid
+                       reason_code_list: list[mqtt.ReasonCodes],
+                       ___: mqtt.Properties):                          # properties
         """
         Handle the MQTT client subscription event.
 
@@ -590,12 +766,12 @@ class MQTTClient:
         for sub, reason in zip(userdata.client.subscriptions, reason_code_list):
             logger.debug("   %s: '%s'", sub.topic, reason)
 
-    def on_connect_fail(self,
-                        client: mqtt.Client,
-                        userdata: MQTTClientUserData,
-                        mid: int,
-                        reason_code_list: list[mqtt.ReasonCodes],
-                        properties: mqtt.Properties):
+    def __on_connect_fail(self,
+                          client: mqtt.Client,
+                          userdata: MQTTClientUserData,
+                          mid: int,
+                          reason_code_list: list[mqtt.ReasonCodes],
+                          properties: mqtt.Properties):
         """
         Callback triggered when the client fails to connect to the MQTT broker.
 
@@ -615,11 +791,11 @@ class MQTTClient:
         """
 
     @staticmethod
-    def on_disconnect(_: mqtt.Client,
-                      userdata: MQTTClientUserData,
-                      __: mqtt.DisconnectFlags,
-                      reason_code: mqtt.ReasonCodes,
-                      ___: mqtt.Properties):
+    def __on_disconnect(_: mqtt.Client,
+                        userdata: MQTTClientUserData,
+                        __: mqtt.DisconnectFlags,
+                        reason_code: mqtt.ReasonCodes,
+                        ___: mqtt.Properties):
         """
         Handles client disconnection event from the MQTT broker. Clears the
         current subscriptions, logs the disconnection reason, and attempts
