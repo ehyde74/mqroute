@@ -1,0 +1,43 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    container_name: mosquitto-broker
+    ports:
+      - "1883:1883" # MQTT port
+    configs:
+      - source: mosquitto_config
+        target: /mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+  ping:
+    build:
+      context: ./ping
+    container_name: ping-container
+    environment:
+      - BROKER_HOST=mosquitto
+      - BROKER_PORT=1883
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+      pong:
+        condition: service_started
+
+  pong:
+    build:
+      context: ./pong
+    container_name: pong-container
+    environment:
+      - BROKER_HOST=mosquitto
+      - BROKER_PORT=1883
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+
+configs:
+  mosquitto_config:
+    content: |
+      listener 1883
+      allow_anonymous true
+      log_type all

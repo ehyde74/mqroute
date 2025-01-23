@@ -67,6 +67,20 @@ class CallbackRunner:
         self.__ready: bool = False
 
     @property
+    def ready(self) -> bool:
+        """
+        Indicates whether the CallbackRunner is ready for use or not.
+
+        This property checks the internal readiness state of the object.
+        It returns a boolean value that indicates if the object has been
+        appropriately initialized or is prepared to perform its functions.
+
+        :return: The readiness state of the object.
+        :rtype: bool
+        """
+        return self.__ready
+
+    @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """
         Provides access to the 'loop' property that is asyncio loop, which returns

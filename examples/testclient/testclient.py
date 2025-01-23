@@ -58,10 +58,10 @@ def handle_weather3(topic: str, msg: mqroute.MQTTMessage, _: dict[str, Any]):
     publish_another_response("Hello")
     logger.info("Hello sent")
 
-@mqtt.sigstop
-def sigstop_handler():
-    """ Simple example of custom SIGSTOP handler callback."""
-    logger.info("sigstop_handler called !!!!")
+@mqtt.sigint
+def sigint_handler():
+    """ Simple example of custom SIGINT handler callback."""
+    logger.info("sigint_handler called !!!!")
 
 
 RESPONSE_COUNTER = 0        # pylint: disable global-statement

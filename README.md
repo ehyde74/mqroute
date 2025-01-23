@@ -133,11 +133,11 @@ async def handle_config_update3(topic, msg, params):
 ---
 
 ### Custom signal handling for terminating application
-Custom termination logic can be applied by using decorator sigstop:
+Custom termination logic can be applied by using decorator sigint:
 
 ```python
-@mqtt.sigstop
-async def sigstop_handler():
+@mqtt.sigint
+async def sigint_handler():
     # termination requested
     print(f"Received request to terminate application.")
 ```
@@ -168,8 +168,8 @@ async def handle_sensor_status(topic, msg, params):
 async def handle_sensor_data(topic, msg, params):
     print(f"Sensor data received on topic {topic}: {msg.message}")
     
-@mqtt.sigstop
-async def sigstop_handler():
+@mqtt.sigint
+async def sigint_handler():
     # termination requested
     print(f"Received request to terminate application.")
 
