@@ -63,7 +63,7 @@ min-similarity-lines=4
 
 [EXCEPTIONS]
 # List of exception classes that should not trigger "W0703: Catching too general exception" warning
-overgeneral-exceptions=Exception
+overgeneral-exceptions=builtins.Exception
 
 [REFACTORING]
 # Maximum number of function arguments before a warning

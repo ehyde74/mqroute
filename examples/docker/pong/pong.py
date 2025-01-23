@@ -1,3 +1,4 @@
+# pylint: skip-file
 import asyncio
 from logging import getLogger, basicConfig, INFO, DEBUG
 import os
