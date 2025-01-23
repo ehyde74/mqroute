@@ -151,12 +151,7 @@ class MQTTClient:
 
         self.sigstop_handlers = []
 
-        try:
-            signal.signal(signal.SIGSTOP, self.sigstop_handler)
-        except AttributeError:
-            # Probably windows, it doesn't have SIGSTOP. Let's try SIGTERM instead
-            signal.signal(signal.SIGTERM, self.sigstop_handler)
-        signal.signal(signal.SIGINT, self.sigstop_handler)
+        signal.signal(signal.SIGINT, self.sigint_handler)
 
     @property
     def running(self):
@@ -171,6 +166,16 @@ class MQTTClient:
         :return: True if the process/service is running, otherwise False.
         """
         return self.__running
+
+    @property
+    def ready(self) -> bool:
+        ready = True
+        if self.__cb_runner is None or self.__msg_publisher is None:
+            ready = False
+        elif not self.__cb_runner.ready or not self.__msg_publisher.ready:
+            ready = False
+        return ready
+
 
     @property
     def callback_resolver(self):
@@ -574,9 +579,9 @@ class MQTTClient:
         self.__client.loop_stop()
         self.__cb_runner.stop()
 
-    def sigstop_handler(self,
-                        _,     #signum,
-                        __ ):  # frame
+    def sigint_handler(self,
+                       _,  #signum,
+                       __):  # frame
         """
         Handler for the SIGSTOP signal. Logs a termination message, executes all
         registered `sigstop_handlers` functions, and initiates the stop process.
@@ -590,10 +595,10 @@ class MQTTClient:
             func()
         self.stop()
 
-    def sigstop(self, func: Callable):
+    def sigint(self, func: Callable):
         """
         Decorator  that wraps a given function with additional functionality and appends it to the 
-        `sigstop_handlers` list of the current instance. The wrapped function can 
+        `sigintp_handlers` list of the current instance. The wrapped function can
         later be used for handling specific signal stop functionalities as needed.
 
         :param func: The function to be wrapped and added to `sigstop_handlers`.

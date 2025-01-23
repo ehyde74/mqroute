@@ -67,6 +67,10 @@ class CallbackRunner:
         self.__ready: bool = False
 
     @property
+    def ready(self) -> bool:
+        return self.__ready
+
+    @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """
         Provides access to the 'loop' property that is asyncio loop, which returns

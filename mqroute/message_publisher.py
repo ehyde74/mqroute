@@ -64,6 +64,10 @@ class MessagePublisher:
         self.__ready: bool = False
 
     @property
+    def ready(self) -> bool:
+        return self.__ready
+
+    @property
     def loop(self) -> Optional[asyncio.AbstractEventLoop]:
         """
         Provides access to the event loop being used by the class, if any.
