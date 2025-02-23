@@ -118,7 +118,8 @@ class CallbackRunner:
             try:
                 ret_val = json.loads(payload)
             except (json.JSONDecodeError, AttributeError, TypeError) as e:
-                logger.error(e)
+                logger.exception("Error while decoding JSON %s", e)
+                logger.error("payload=%s",payload)
                 ret_val = payload
         elif request.payload_format == PayloadFormat.RAW:
             ret_val = payload
@@ -151,13 +152,20 @@ class CallbackRunner:
             try:
                 final_msg = MQTTMessage(topic=request.topic,
                                         message=self.convert_payload(request, msg.message))
-            except Exception as e:
-                logger.error(e)
-                raise
-            if iscoroutinefunction(request.cb_method):
-                await request.cb_method(request.topic, final_msg, request.parameters)
-            else:
-                request.cb_method(request.topic, final_msg, request.parameters)
+            except Exception as e: # pylint: disable=broad-exception-caught
+                logger.exception("Error while convering MQTT message:  %s", e)
+                logger.debug("request.topic=%s request.message==%s",request.topic, request.message)
+                continue
+            try:
+                if iscoroutinefunction(request.cb_method):
+                    await request.cb_method(request.topic, final_msg, request.parameters)
+                else:
+                    request.cb_method(request.topic, final_msg, request.parameters)
+            except Exception as e: # pylint: disable=broad-exception-caught
+
+                logger.exception("Error while executing callback MQTT message: %s", e)
+                logger.debug("request.topic=%s request.message==%s",request.topic, request.message)
+                continue
 
     def stop(self):
         """

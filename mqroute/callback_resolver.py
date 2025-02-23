@@ -107,7 +107,7 @@ class CallbackResolver:
         """
         return self.__nodes
 
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=4096)
     def get_matching_nodes(self, topic: str) -> list[TopicMatch]:
         """
         Fetches and returns a list of matching nodes for the provided topic. This method interacts
