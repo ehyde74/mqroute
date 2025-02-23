@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mqroute"
-version = "0.3.3"
+version = "0.4.0"
 authors = [
   { name="ehyde74" },
 ]
@@ -16,7 +16,6 @@ requires-python = ">=3.13"
 dependencies = [
   "paho-mqtt>=2.1.0",
   "typeguard>=4.4.1",
-  "pytest>=8.3.4"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

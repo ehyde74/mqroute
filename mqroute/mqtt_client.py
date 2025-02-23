@@ -89,9 +89,16 @@ class MQTTClient:
     :type sigstop_handlers: list
     """
     # pylint: disable=too-many-instance-attributes
+    # pylint: disable=too-many-arguments
     # noinspection PyArgumentList
     @typechecked
-    def __init__(self, *, host: str, port: int = 1883, paho_logs = False):
+    def __init__(self, *,
+                 host: str,
+                 port: int = 1883,
+                 transport: str = "tcp",
+                 ws_path: str = "/mqtt",
+                 set_tls:  bool = False,
+                 paho_logs = False ):
         """
         Initializes an MQTTClient instance with essential configurations such as host, port, and
         optional logging. This class configures the client's callbacks and prepares it to handle
@@ -127,11 +134,20 @@ class MQTTClient:
         client_host_name = socket.gethostname()
         client_id = f"{client_host_name}-{randint(0, 1_000_000):x}"
 
-        logger.info("Initializing MQTTClient: client_id=%s, host=%s, port=%s",
+        logger.info(("Initializing MQTTClient: client_id=%s, host=%s, port=%s, transport=%s, "
+                     "set_tls=%s, paho_logs=%s"),
                     client_id,
                     host,
-                    port)
-        self.__client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+                    port,
+                    transport,
+                    set_tls,
+                    paho_logs)
+        self.__client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+                                    transport=transport)
+        if set_tls:
+            self.__client.tls_set()
+        self.__client.ws_set_options(path=ws_path)
+
         self.__msg_publisher = MessagePublisher(self.__client)
 
         userdata = MQTTClientUserData(self)
